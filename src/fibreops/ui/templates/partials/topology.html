@@ -1,0 +1,24 @@
+{# Node topology mini-grid — one cell per recent FN-* node, coloured by latest severity. #}
+{% if not cells %}
+  <p class="empty-state">[ AWAITING TELEMETRY · NO NODES OBSERVED ]</p>
+{% else %}
+<div class="topology-grid" role="grid" aria-label="Fibre node health grid">
+  {% for c in cells %}
+    <button type="button"
+            class="topo-cell sev-{{ c.severity }}{{ ' topo-cell--dispatched' if c.dispatched else '' }}{{ ' pulse-critical' if c.severity == 'critical' else '' }}"
+            title="{{ c.node_id }} · {{ c.region }} · {{ c.site }} · {{ c.severity }} · {{ '{:,}'.format(c.customers) }} customers{{ ' · dispatched' if c.dispatched else '' }}"
+            hx-get="/partials/run/{{ c.run_id }}"
+            hx-target="#detail-panel"
+            hx-swap="innerHTML">
+      <span class="topo-node">{{ c.node_id.replace('FN-','') }}</span>
+      <span class="topo-sev">{{ c.severity[0] | upper }}</span>
+    </button>
+  {% endfor %}
+</div>
+<p class="topology-legend">
+  <span class="legend-item"><span class="sev-dot sev-critical"></span>critical</span>
+  <span class="legend-item"><span class="sev-dot sev-high"></span>high</span>
+  <span class="legend-item"><span class="sev-dot sev-medium"></span>medium</span>
+  <span class="legend-item"><span class="sev-dot sev-low"></span>low</span>
+</p>
+{% endif %}

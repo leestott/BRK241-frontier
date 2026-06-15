@@ -1,0 +1,59 @@
+{# Tactical KPI wallboard strip — refreshed every 4s by the index page. #}
+<div class="kpi-strip">
+  <div class="kpi-tile kpi-tile--accent-violet">
+    <span class="kpi-label">[01] INCIDENTS · 24h</span>
+    <span class="kpi-value">{{ kpi.total }}</span>
+    <span class="kpi-sub">tracked in state</span>
+  </div>
+
+  <div class="kpi-tile {{ 'kpi-tile--alarm' if kpi.critical else 'kpi-tile--accent-rose' }}">
+    <span class="kpi-label">
+      [02] CRITICAL
+      {% if kpi.critical %}<span class="led led--critical"></span>{% endif %}
+    </span>
+    <span class="kpi-value">{{ kpi.critical }}</span>
+    <span class="kpi-sub">+ {{ kpi.high }} high · {{ kpi.medium }} med</span>
+  </div>
+
+  <div class="kpi-tile kpi-tile--accent-amber">
+    <span class="kpi-label">[03] CUSTOMERS · IMPACTED</span>
+    <span class="kpi-value">{{ '{:,}'.format(kpi.customers_impacted) }}</span>
+    <span class="kpi-sub">aggregate served</span>
+  </div>
+
+  <div class="kpi-tile kpi-tile--accent-emerald">
+    <span class="kpi-label">[04] ENGINEERS · DISPATCHED</span>
+    <span class="kpi-value">{{ kpi.dispatched }}</span>
+    <span class="kpi-sub">field bookings</span>
+  </div>
+
+  <div class="kpi-tile kpi-tile--accent-sky">
+    <span class="kpi-label">[05] FOUNDRY IQ · LOOKUPS</span>
+    <span class="kpi-value">{{ kpi.iq_hits }}</span>
+    <span class="kpi-sub">web + work</span>
+  </div>
+
+  <div class="kpi-tile kpi-tile--accent-violet">
+    <span class="kpi-label">[06] TEAMS · CARDS POSTED</span>
+    <span class="kpi-value">{{ kpi.teams_count }}</span>
+    <span class="kpi-sub">outbox</span>
+  </div>
+
+  <div class="kpi-tile kpi-tile--accent-emerald">
+    <span class="kpi-label">[07] OPTIMISER · AVG SCORE</span>
+    <span class="kpi-value">
+      {%- if kpi.avg_score is not none -%}{{ '%.2f' % kpi.avg_score }}{%- else -%}—{%- endif -%}
+    </span>
+    <span class="kpi-sub">last evaluation</span>
+  </div>
+
+  <div class="kpi-tile kpi-tile--accent-slate">
+    <span class="kpi-label">[08] SYSTEM · HEALTH</span>
+    <span class="kpi-stack">
+      <span class="kpi-row"><span class="led led--{{ 'ok' if backend == 'foundry' else 'warn' }}"></span><span>backend · <span class="font-mono">{{ backend }}</span></span></span>
+      <span class="kpi-row"><span class="led led--{{ 'ok' if teams_enabled else 'idle' }}"></span><span>teams · <span class="font-mono">{{ 'live' if teams_enabled else 'outbox' }}</span></span></span>
+      <span class="kpi-row"><span class="led led--{{ 'ok' if voice_live_enabled else 'idle' }}"></span><span>voice · <span class="font-mono">{{ 'live' if voice_live_enabled else 'outbox' }}</span></span></span>
+      <span class="kpi-row"><span class="led led--{{ 'ok' if (web_iq_enabled or work_iq_enabled) else ('warn' if foundry_iq_enabled else 'idle') }}"></span><span>iq · <span class="font-mono">{% if web_iq_enabled or work_iq_enabled %}foundry{% elif foundry_iq_enabled %}fixtures{% else %}off{% endif %}</span></span></span>
+    </span>
+  </div>
+</div>

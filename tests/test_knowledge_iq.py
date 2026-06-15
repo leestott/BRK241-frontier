@@ -233,7 +233,7 @@ def client(monkeypatch: pytest.MonkeyPatch, chdir_state_tmp: Path) -> TestClient
 def test_iq_partial_empty_state(client: TestClient) -> None:
     r = client.get("/partials/iq")
     assert r.status_code == 200
-    assert "No knowledge lookups yet" in r.text
+    assert "NO IQ LOOKUPS" in r.text
 
 
 def test_iq_partial_renders_lookups(client: TestClient, chdir_state_tmp: Path) -> None:

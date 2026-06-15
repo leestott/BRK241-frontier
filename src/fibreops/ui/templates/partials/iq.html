@@ -1,5 +1,5 @@
 {% if not lookups %}
-  <p class="text-slate-500 text-sm">No knowledge lookups yet. Inject an incident — the Incident Analysis agent will ground its reasoning with Foundry Web IQ + Work IQ.</p>
+  <p class="empty-state">[ NO IQ LOOKUPS · INJECT TO TRIGGER GROUNDING ]</p>
 {% else %}
   <ul class="space-y-3 text-sm">
     {% for lookup in lookups %}

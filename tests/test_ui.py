@@ -82,7 +82,8 @@ def test_index_renders_with_backend_badge(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "FibreOps NOC Console" in r.text
-    assert "backend" in r.text
+    # NOC header surfaces backend mode via the OPS · MODE badge.
+    assert "MODE" in r.text
     # Backend is forced to "local" by conftest's hermetic_env fixture.
     assert "local" in r.text
 
@@ -90,7 +91,26 @@ def test_index_renders_with_backend_badge(client):
 def test_runs_partial_empty(client):
     r = client.get("/partials/runs")
     assert r.status_code == 200
-    assert "No incidents yet" in r.text
+    assert "AWAITING TELEMETRY" in r.text
+
+
+def test_kpi_partial_renders_wallboard(client):
+    r = client.get("/partials/kpi")
+    assert r.status_code == 200
+    # Tactical wallboard section codes [01] .. [08]
+    assert "[01] INCIDENTS" in r.text
+    assert "[02] CRITICAL" in r.text
+    assert "[08] SYSTEM" in r.text
+    # System health panel surfaces backend / teams / iq state
+    assert "backend" in r.text
+    assert "teams" in r.text
+
+
+def test_topology_partial_empty(client):
+    r = client.get("/partials/topology")
+    assert r.status_code == 200
+    # When no nodes have been observed yet, we show a standby placeholder.
+    assert "AWAITING TELEMETRY" in r.text or "NO NODES" in r.text
 
 
 def test_runs_partial_renders_severity_and_engineer(client, chdir_state_tmp):
@@ -124,7 +144,7 @@ def test_run_detail_for_unknown_id_returns_not_found_message(client):
 def test_optimiser_partial_empty(client):
     r = client.get("/partials/optimiser")
     assert r.status_code == 200
-    assert "No runs scored yet" in r.text
+    assert "NO SCORES" in r.text
 
 
 def test_optimiser_partial_with_summary(client, chdir_state_tmp):
@@ -190,7 +210,7 @@ def test_action_reset_truncates_state(client, chdir_state_tmp):
     r = client.post("/actions/reset")
     assert r.status_code == 200
     assert not (state / "runs.jsonl").exists()
-    assert "No incidents yet" in r.text
+    assert "AWAITING TELEMETRY" in r.text
 
 
 def test_action_inject_invokes_handle_signal(client, monkeypatch, chdir_state_tmp):

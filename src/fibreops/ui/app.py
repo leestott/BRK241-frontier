@@ -11,6 +11,8 @@ Layout::
 
   GET  /                              page shell
   GET  /partials/runs                 recent runs list
+  GET  /partials/kpi                  tactical wallboard metrics
+  GET  /partials/topology             node grid (recent FN-* nodes)
   GET  /partials/optimiser            optimiser summary
   GET  /partials/teams                Teams outbox cards
   GET  /partials/voice                Voice Live outbox utterances
@@ -126,6 +128,82 @@ def _flatten_teams_card(card: dict[str, Any]) -> dict[str, Any]:
     except (KeyError, IndexError, TypeError):
         return {"title": "(unparseable card)", "summary": "", "facts": []}
     return {"title": title, "summary": summary, "facts": facts}
+
+
+def _compute_kpis(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Tactical wallboard metrics derived from the recent runs list."""
+    summaries = [_run_summary(r) for r in runs]
+    by_sev: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    customers_impacted = 0
+    dispatched = 0
+    for s in summaries:
+        sev = s.get("severity", "low")
+        by_sev[sev] = by_sev.get(sev, 0) + 1
+        customers_impacted += int(s.get("customers_served") or 0)
+        if s.get("dispatched"):
+            dispatched += 1
+
+    iq_hits = 0
+    if IQ_LOOKUPS.exists():
+        iq_hits = sum(
+            1
+            for line in IQ_LOOKUPS.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        )
+
+    teams_count = 0
+    if TEAMS_OUTBOX.exists():
+        teams_count = sum(
+            1
+            for line in TEAMS_OUTBOX.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        )
+
+    opt = _load_optimiser()
+    avg_score = opt.get("avg_score") if opt else None
+
+    return {
+        "total": len(summaries),
+        "critical": by_sev["critical"],
+        "high": by_sev["high"],
+        "medium": by_sev["medium"],
+        "low": by_sev["low"],
+        "customers_impacted": customers_impacted,
+        "dispatched": dispatched,
+        "iq_hits": iq_hits,
+        "teams_count": teams_count,
+        "avg_score": avg_score,
+    }
+
+
+def _compute_topology(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One cell per recent FN node, coloured by its latest severity.
+
+    Returns the most recent state of each node (de-duplicated by node_id) so
+    the topology mini-grid behaves like a wallboard health-map rather than a
+    chronological log.
+    """
+    seen: dict[str, dict[str, Any]] = {}
+    for r in runs:
+        s = _run_summary(r)
+        node = s.get("node_id")
+        if not node or node in seen:
+            continue
+        seen[node] = {
+            "node_id": node,
+            "region": s.get("region") or "?",
+            "site": s.get("site") or "?",
+            "severity": s.get("severity") or "low",
+            "customers": s.get("customers_served") or 0,
+            "dispatched": s.get("dispatched"),
+            "run_id": s.get("run_id"),
+            "incident_id": s.get("incident_id"),
+            "started_at": s.get("started_at", ""),
+        }
+    cells = list(seen.values())
+    sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    cells.sort(key=lambda c: (sev_order.get(c["severity"], 9), c["node_id"]))
+    return cells
 
 
 def _run_summary(run: dict[str, Any]) -> dict[str, Any]:
@@ -283,6 +361,31 @@ def create_app() -> FastAPI:
         runs = [_run_summary(r) for r in _load_runs()]
         return templates.TemplateResponse(
             request, "partials/runs.html", {"runs": runs}
+        )
+
+    @app.get("/partials/kpi", response_class=HTMLResponse)
+    async def partial_kpi(request: Request) -> HTMLResponse:
+        settings = get_settings()
+        kpi = _compute_kpis(_load_runs())
+        return templates.TemplateResponse(
+            request,
+            "partials/kpi.html",
+            {
+                "kpi": kpi,
+                "backend": settings.agent_backend,
+                "teams_enabled": settings.teams_enabled,
+                "voice_live_enabled": settings.voice_live_enabled,
+                "foundry_iq_enabled": settings.foundry_iq_enabled,
+                "web_iq_enabled": settings.web_iq_enabled,
+                "work_iq_enabled": settings.work_iq_enabled,
+            },
+        )
+
+    @app.get("/partials/topology", response_class=HTMLResponse)
+    async def partial_topology(request: Request) -> HTMLResponse:
+        cells = _compute_topology(_load_runs())
+        return templates.TemplateResponse(
+            request, "partials/topology.html", {"cells": cells}
         )
 
     @app.get("/partials/optimiser", response_class=HTMLResponse)

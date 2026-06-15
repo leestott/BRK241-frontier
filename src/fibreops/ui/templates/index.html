@@ -22,179 +22,213 @@
   </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=3" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22><text y=%2214%22 font-size=%2214%22>🛰️</text></svg>" />
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans noc-bg">
 
   <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
     <div class="max-w-screen-2xl mx-auto px-4 py-3 flex items-center gap-4 flex-wrap">
       <div class="flex items-center gap-2">
         <span class="text-2xl">🛰️</span>
         <div>
-          <h1 class="text-lg font-semibold leading-tight">FibreOps NOC Console</h1>
-          <p class="text-xs text-slate-400 leading-tight">Autonomous fibre outage response · BRK241</p>
+          <h1 class="text-lg font-semibold leading-tight tracking-wide">FibreOps NOC Console</h1>
+          <p class="text-xs text-slate-400 leading-tight font-mono">AUTONOMOUS · FIBRE · OUTAGE · RESPONSE — BRK241</p>
         </div>
       </div>
 
-      <div class="flex items-center gap-2 ml-6 text-xs">
-        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">
-          backend · <span class="font-mono text-emerald-300">{{ backend }}</span>
+      <div class="ml-2 flex items-center gap-2 ops-badges">
+        <span class="ops-badge ops-badge--secure"><span class="led led--ok"></span>OPS · SECURE</span>
+        <span class="ops-badge ops-badge--mode">MODE · <span class="font-mono text-emerald-300">{{ backend }}</span></span>
+        <span class="ops-badge ops-badge--clock">
+          <span class="led led--ok"></span>
+          UTC <span id="utc-clock" class="font-mono">--:--:--</span>
         </span>
+      </div>
+
+      <div class="flex items-center gap-2 ml-auto text-xs">
         <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">
           netops · <span class="font-mono {{ 'text-violet-300' if netops_routine else 'text-slate-400' }}">{{ 'routine' if netops_routine else 'agent' }}</span>
         </span>
         <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">
           auto-dispatch · <span class="font-mono {{ 'text-emerald-300' if auto_dispatch else 'text-amber-300' }}">{{ 'on' if auto_dispatch else 'off' }}</span>
         </span>
-        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">
-          teams · <span class="font-mono {{ 'text-emerald-300' if teams_enabled else 'text-slate-400' }}">{{ 'live' if teams_enabled else 'outbox' }}</span>
-        </span>
-        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">
-          voice · <span class="font-mono {{ 'text-emerald-300' if voice_live_enabled else 'text-slate-400' }}">{{ 'voice-live' if voice_live_enabled else 'outbox' }}</span>
-        </span>
-        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">
-          iq · <span class="font-mono {{ 'text-emerald-300' if (web_iq_enabled or work_iq_enabled) else ('text-sky-300' if foundry_iq_enabled else 'text-slate-400') }}">
-            {%- if web_iq_enabled or work_iq_enabled -%}foundry-iq
-            {%- elif foundry_iq_enabled -%}fixtures
-            {%- else -%}off{%- endif -%}
-          </span>
-        </span>
-      </div>
-
-      <div class="ml-auto flex flex-wrap items-center gap-2">
-        <button class="btn-primary"
-                hx-post="/actions/inject?count=1"
-                hx-target="#runs-panel"
-                hx-swap="innerHTML"
-                hx-indicator="#busy">⚡ Inject signal</button>
-        <button class="btn-warning"
-                hx-post="/actions/inject?count=1&critical=true"
-                hx-target="#runs-panel"
-                hx-swap="innerHTML"
-                hx-indicator="#busy">🚨 Inject critical</button>
-        <button class="btn-secondary"
-                hx-post="/actions/voice"
-                hx-target="#voice-panel"
-                hx-swap="innerHTML"
-                hx-indicator="#busy">🔊 Speak status</button>
-        <span id="sim-toggle" hx-get="/partials/sim" hx-trigger="load" hx-swap="innerHTML"></span>
-        <button class="btn-secondary"
-                hx-post="/actions/optimise"
-                hx-target="#optimiser-panel"
-                hx-swap="innerHTML"
-                hx-indicator="#busy">📊 Run optimiser</button>
-        <button class="btn-ghost"
-                hx-post="/actions/reset"
-                hx-target="#runs-panel"
-                hx-swap="innerHTML"
-                hx-confirm="Truncate state files (runs, traces, teams outbox, D365 store)?">🧹 Reset state</button>
-        <button id="theme-toggle"
-                type="button"
-                class="btn-theme"
-                title="Toggle light / dark theme"
-                aria-label="Toggle light / dark theme"
-                onclick="(function(){var r=document.documentElement;var n=r.getAttribute('data-theme')==='light'?'dark':'light';r.setAttribute('data-theme',n);try{localStorage.setItem('fibreops-theme',n);}catch(e){}var b=document.getElementById('theme-toggle');if(b)b.textContent=n==='light'?'🌙':'☀️';})()">☀️</button>
-        <script>
-          // Sync the toggle's glyph to whatever the head script picked.
-          (function () {
-            var b = document.getElementById('theme-toggle');
-            if (b) b.textContent = document.documentElement.getAttribute('data-theme') === 'light' ? '🌙' : '☀️';
-          })();
-        </script>
-        <span id="busy" class="htmx-indicator text-xs text-amber-300 ml-2">working…</span>
       </div>
     </div>
+
+    <div class="max-w-screen-2xl mx-auto px-4 pb-3 flex flex-wrap items-center gap-2">
+      <button class="btn-primary"
+              hx-post="/actions/inject?count=1"
+              hx-target="#runs-panel"
+              hx-swap="innerHTML"
+              hx-indicator="#busy">⚡ Inject signal</button>
+      <button class="btn-warning"
+              hx-post="/actions/inject?count=1&critical=true"
+              hx-target="#runs-panel"
+              hx-swap="innerHTML"
+              hx-indicator="#busy">🚨 Inject critical</button>
+      <button class="btn-secondary"
+              hx-post="/actions/voice"
+              hx-target="#voice-panel"
+              hx-swap="innerHTML"
+              hx-indicator="#busy">🔊 Speak status</button>
+      <span id="sim-toggle" hx-get="/partials/sim" hx-trigger="load" hx-swap="innerHTML"></span>
+      <button class="btn-secondary"
+              hx-post="/actions/optimise"
+              hx-target="#optimiser-panel"
+              hx-swap="innerHTML"
+              hx-indicator="#busy">📊 Run optimiser</button>
+      <button class="btn-ghost"
+              hx-post="/actions/reset"
+              hx-target="#runs-panel"
+              hx-swap="innerHTML"
+              hx-confirm="Truncate state files (runs, traces, teams outbox, D365 store)?">🧹 Reset state</button>
+      <button id="theme-toggle"
+              type="button"
+              class="btn-theme"
+              title="Toggle light / dark theme"
+              aria-label="Toggle light / dark theme"
+              onclick="(function(){var r=document.documentElement;var n=r.getAttribute('data-theme')==='light'?'dark':'light';r.setAttribute('data-theme',n);try{localStorage.setItem('fibreops-theme',n);}catch(e){}var b=document.getElementById('theme-toggle');if(b){b.textContent=n==='light'?'🌙 Dark mode':'☀️ Light mode';b.title=n==='light'?'Switch to dark mode':'Switch to light mode';b.setAttribute('aria-label',b.title);}})()">☀️ Light mode</button>
+      <script>
+        // Sync the toggle's label + tooltip to whatever the head script picked.
+        (function () {
+          var b = document.getElementById('theme-toggle');
+          if (!b) return;
+          var t = document.documentElement.getAttribute('data-theme');
+          b.textContent = t === 'light' ? '🌙 Dark mode' : '☀️ Light mode';
+          b.title = t === 'light' ? 'Switch to dark mode' : 'Switch to light mode';
+          b.setAttribute('aria-label', b.title);
+        })();
+        // Live UTC clock.
+        (function () {
+          function tick() {
+            var el = document.getElementById('utc-clock');
+            if (!el) return;
+            var d = new Date();
+            var hh = String(d.getUTCHours()).padStart(2, '0');
+            var mm = String(d.getUTCMinutes()).padStart(2, '0');
+            var ss = String(d.getUTCSeconds()).padStart(2, '0');
+            el.textContent = hh + ':' + mm + ':' + ss;
+          }
+          tick();
+          setInterval(tick, 1000);
+        })();
+      </script>
+      <span id="busy" class="htmx-indicator text-xs text-amber-300 ml-2">working…</span>
+    </div>
   </header>
+
+  <section class="max-w-screen-2xl mx-auto px-4 pt-4">
+    <div id="kpi-panel"
+         hx-get="/partials/kpi"
+         hx-trigger="load, every 4s"
+         hx-swap="innerHTML">
+      <p class="empty-state">[ INITIALISING WALLBOARD ]</p>
+    </div>
+  </section>
 
   <main class="max-w-screen-2xl mx-auto px-4 py-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
 
     <section class="lg:col-span-4 panel">
       <header class="panel-header">
-        <h2>Active incidents</h2>
-        <span class="text-xs text-slate-400">polling · 3s</span>
+        <h2><span class="panel-code">[01·RUNS]</span> Active incidents</h2>
+        <span class="panel-meta">polling · 3s</span>
       </header>
       <div id="runs-panel"
            class="panel-body"
            hx-get="/partials/runs"
            hx-trigger="load, every 3s"
            hx-swap="innerHTML">
-        <p class="text-slate-500 text-sm">Loading…</p>
+        <p class="empty-state">[ AWAITING TELEMETRY ]</p>
       </div>
     </section>
 
     <section class="lg:col-span-5 panel">
       <header class="panel-header">
-        <h2>Incident detail</h2>
-        <span class="text-xs text-slate-400">click a card</span>
+        <h2><span class="panel-code">[02·DETAIL]</span> Incident detail</h2>
+        <span class="panel-meta">click a card</span>
       </header>
       <div id="detail-panel" class="panel-body">
-        <p class="text-slate-500 text-sm">Select an incident on the left to see the agent decision timeline.</p>
+        <p class="empty-state">[ SELECT INCIDENT · AGENT TIMELINE STANDBY ]</p>
       </div>
     </section>
 
     <section class="lg:col-span-3 flex flex-col gap-4">
       <div class="panel">
         <header class="panel-header">
-          <h2>Optimiser</h2>
-          <span class="text-xs text-slate-400">manual</span>
+          <h2><span class="panel-code">[03·TOPO]</span> Node grid</h2>
+          <span class="panel-meta">polling · 4s</span>
+        </header>
+        <div id="topology-panel"
+             class="panel-body"
+             hx-get="/partials/topology"
+             hx-trigger="load, every 4s"
+             hx-swap="innerHTML">
+          <p class="empty-state">[ LOADING NODES ]</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <header class="panel-header">
+          <h2><span class="panel-code">[04·OPT]</span> Optimiser</h2>
+          <span class="panel-meta">manual</span>
         </header>
         <div id="optimiser-panel"
              class="panel-body"
              hx-get="/partials/optimiser"
              hx-trigger="load"
              hx-swap="innerHTML">
-          <p class="text-slate-500 text-sm">Loading…</p>
+          <p class="empty-state">[ NO SCORES YET ]</p>
         </div>
       </div>
 
       <div class="panel">
         <header class="panel-header">
-          <h2>Teams notifications</h2>
-          <span class="text-xs text-slate-400">polling · 5s</span>
+          <h2><span class="panel-code">[05·TEAMS]</span> Teams notifications</h2>
+          <span class="panel-meta">polling · 5s</span>
         </header>
         <div id="teams-panel"
              class="panel-body"
              hx-get="/partials/teams"
              hx-trigger="load, every 5s"
              hx-swap="innerHTML">
-          <p class="text-slate-500 text-sm">Loading…</p>
+          <p class="empty-state">[ OUTBOX EMPTY ]</p>
         </div>
       </div>
 
       <div class="panel">
         <header class="panel-header">
-          <h2>Voice Live updates</h2>
-          <span class="text-xs text-slate-400">polling · 5s</span>
+          <h2><span class="panel-code">[06·VOICE]</span> Voice Live updates</h2>
+          <span class="panel-meta">polling · 5s</span>
         </header>
         <div id="voice-panel"
              class="panel-body"
              hx-get="/partials/voice"
              hx-trigger="load, every 5s"
              hx-swap="innerHTML">
-          <p class="text-slate-500 text-sm">Loading…</p>
+          <p class="empty-state">[ NO UTTERANCES ]</p>
         </div>
       </div>
 
       <div class="panel">
         <header class="panel-header">
-          <h2>Knowledge sources <span class="text-xs text-slate-400 font-normal">(Foundry IQ)</span></h2>
-          <span class="text-xs text-slate-400">polling · 6s</span>
+          <h2><span class="panel-code">[07·IQ]</span> Knowledge sources <span class="text-xs text-slate-400 font-normal">(Foundry IQ)</span></h2>
+          <span class="panel-meta">polling · 6s</span>
         </header>
         <div id="iq-panel"
              class="panel-body"
              hx-get="/partials/iq"
              hx-trigger="load, every 6s"
              hx-swap="innerHTML">
-          <p class="text-slate-500 text-sm">Loading…</p>
+          <p class="empty-state">[ NO LOOKUPS YET ]</p>
         </div>
       </div>
     </section>
 
   </main>
 
-  <footer class="text-center text-xs text-slate-500 py-4">
-    Foundry endpoint: <span class="font-mono">{{ foundry_endpoint }}</span>
+  <footer class="text-center text-xs text-slate-500 py-4 font-mono">
+    FOUNDRY · ENDPOINT · <span>{{ foundry_endpoint }}</span>
   </footer>
 
 </body>
