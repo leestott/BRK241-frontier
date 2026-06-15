@@ -19,6 +19,7 @@ the orchestrator code is identical.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass
@@ -87,8 +88,10 @@ class LocalAgent:
         raise ValueError(f"Unknown role: {self.role}")
 
     async def _run_incident_analysis(self, p: dict[str, Any]) -> LocalAgentResponse:
-        sop = self.tools["lookup_sop"](signal_type=p["signal_type"])
-        prior = self.tools["recall"](scope="global", key=f"prior_incidents_for_node:{p['node_id']}")
+        sop = await asyncio.to_thread(self.tools["lookup_sop"], signal_type=p["signal_type"])
+        prior = await asyncio.to_thread(
+            self.tools["recall"], scope="global", key=f"prior_incidents_for_node:{p['node_id']}"
+        )
         customers = p.get("customers_served", 0)
         severity = p["severity"]
         if severity == "high" and customers > 5000:
@@ -100,13 +103,16 @@ class LocalAgent:
         if get_settings().foundry_iq_enabled:
             try:
                 if "web_iq_search" in self.tools:
-                    web_hits = self.tools["web_iq_search"](
+                    web_hits = await asyncio.to_thread(
+                        self.tools["web_iq_search"],
                         query=f"{p.get('region','')} {p['signal_type']} outage",
                         limit=2,
                     )
                 if "work_iq_search" in self.tools:
-                    work_hits = self.tools["work_iq_search"](
-                        query=f"{p['node_id']} SLA customers", limit=2
+                    work_hits = await asyncio.to_thread(
+                        self.tools["work_iq_search"],
+                        query=f"{p['node_id']} SLA customers",
+                        limit=2,
                     )
             except Exception:  # pragma: no cover - IQ is best-effort
                 pass
@@ -127,14 +133,16 @@ class LocalAgent:
 
     async def _run_coordinator(self, p: dict[str, Any]) -> LocalAgentResponse:
         analysis = p["analysis"]
-        ticket = self.tools["create_ticket"](
+        ticket = await asyncio.to_thread(
+            self.tools["create_ticket"],
             incident_id=p["incident_id"],
             node_id=p["node_id"],
             severity=analysis["severity"],
             title=f"[{analysis['severity'].upper()}] {analysis['summary']}",
             description=f"{analysis['probable_cause']}\n\nImpact: {analysis['customer_impact']}\nRecommended: {'; '.join(analysis['recommended_actions'])}",
         )
-        self.tools["post_outage_notice"](
+        await asyncio.to_thread(
+            self.tools["post_outage_notice"],
             incident_id=p["incident_id"],
             node_id=p["node_id"],
             severity=analysis["severity"],
@@ -142,14 +150,16 @@ class LocalAgent:
             customer_impact=analysis["customer_impact"],
             probable_cause=analysis["probable_cause"],
         )
-        self.tools["remember"](
+        await asyncio.to_thread(
+            self.tools["remember"],
             scope="global",
             key=f"last_ticket_for_node:{p['node_id']}",
             value={"ticket_id": ticket["ticket_id"], "severity": analysis["severity"]},
         )
         if get_settings().voice_updates_enabled and "speak_status_update" in self.tools:
             try:
-                self.tools["speak_status_update"](
+                await asyncio.to_thread(
+                    self.tools["speak_status_update"],
                     incident_id=p["incident_id"],
                     phrase="outage_detected",
                     severity=analysis["severity"],
@@ -168,29 +178,39 @@ class LocalAgent:
         )
 
     async def _run_dispatch(self, p: dict[str, Any]) -> LocalAgentResponse:
-        sop = self.tools["lookup_sop"](signal_type=p["signal_type"])
+        sop = await asyncio.to_thread(self.tools["lookup_sop"], signal_type=p["signal_type"])
         skills = _skills_from_sop(sop["text"])
-        result = self.tools["dispatch_engineer"](
-            incident_id=p["incident_id"], node_id=p["node_id"], required_skills=skills
+        result = await asyncio.to_thread(
+            self.tools["dispatch_engineer"],
+            incident_id=p["incident_id"],
+            node_id=p["node_id"],
+            required_skills=skills,
         )
         if not result.get("dispatched"):
             return LocalAgentResponse(
                 text=f"NO_ENGINEER_AVAILABLE {result.get('reason','unknown')}",
                 metadata={"dispatch": result},
             )
-        self.tools["post_status_update"](
+        await asyncio.to_thread(
+            self.tools["post_status_update"],
             incident_id=p["incident_id"],
             status="engineer_dispatched",
             note=f"Engineer en route to {p['node_id']}",
             engineer_name=result["engineer_name"],
             eta_minutes=result["eta_minutes"],
         )
-        self.tools["update_ticket"](ticket_id=p["ticket_id"], status="assigned", assignee=result["engineer_name"])
+        await asyncio.to_thread(
+            self.tools["update_ticket"],
+            ticket_id=p["ticket_id"],
+            status="assigned",
+            assignee=result["engineer_name"],
+        )
         # Emit a Voice Live announcement so the operator hears the dispatch.
         # Off by default (FIBREOPS_VOICE_UPDATES); always reachable from the UI.
         if get_settings().voice_updates_enabled and "speak_status_update" in self.tools:
             try:
-                self.tools["speak_status_update"](
+                await asyncio.to_thread(
+                    self.tools["speak_status_update"],
                     incident_id=p["incident_id"],
                     phrase="engineer_dispatched",
                     severity=p.get("severity", "medium"),

@@ -80,10 +80,11 @@ $registry    = az resource list -g $ResourceGroup --resource-type Microsoft.Cont
 $foundry     = az cognitiveservices account show -g $FoundryResourceGroup -n $FoundryAccountName --query id -o tsv
 
 $grants = @(
-    @{ Role = "Azure Event Hubs Data Owner"; Scope = $ehNamespace; Desc = "publish/consume fibre-signals" },
-    @{ Role = "Key Vault Secrets User";       Scope = $keyVault;    Desc = "read optional secrets" },
-    @{ Role = "AcrPull";                       Scope = $registry;    Desc = "pull image (tighten away from admin creds)" },
-    @{ Role = "Azure AI User";                 Scope = $foundry;     Desc = "invoke hosted Prompt Agents in Foundry Agent Service" }
+    @{ Role = "Azure Event Hubs Data Owner";    Scope = $ehNamespace; Desc = "publish/consume fibre-signals" },
+    @{ Role = "Key Vault Secrets User";          Scope = $keyVault;    Desc = "read optional secrets" },
+    @{ Role = "AcrPull";                          Scope = $registry;    Desc = "pull image (tighten away from admin creds)" },
+    @{ Role = "Azure AI Developer";               Scope = $foundry;     Desc = "invoke hosted Prompt Agents in Foundry Agent Service" },
+    @{ Role = "Cognitive Services OpenAI User";   Scope = $foundry;     Desc = "call the underlying model deployment" }
 )
 
 foreach ($g in $grants) {

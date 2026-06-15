@@ -4,6 +4,22 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>FibreOps NOC Console — BRK241</title>
+  <script>
+    // Apply persisted theme before paint to avoid a flash. Defaults to dark.
+    (function () {
+      try {
+        var t = localStorage.getItem('fibreops-theme');
+        if (t !== 'light' && t !== 'dark') {
+          t = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+            ? 'light'
+            : 'dark';
+        }
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <link rel="stylesheet" href="/static/style.css" />
@@ -73,6 +89,19 @@
                 hx-target="#runs-panel"
                 hx-swap="innerHTML"
                 hx-confirm="Truncate state files (runs, traces, teams outbox, D365 store)?">🧹 Reset state</button>
+        <button id="theme-toggle"
+                type="button"
+                class="btn-theme"
+                title="Toggle light / dark theme"
+                aria-label="Toggle light / dark theme"
+                onclick="(function(){var r=document.documentElement;var n=r.getAttribute('data-theme')==='light'?'dark':'light';r.setAttribute('data-theme',n);try{localStorage.setItem('fibreops-theme',n);}catch(e){}var b=document.getElementById('theme-toggle');if(b)b.textContent=n==='light'?'🌙':'☀️';})()">☀️</button>
+        <script>
+          // Sync the toggle's glyph to whatever the head script picked.
+          (function () {
+            var b = document.getElementById('theme-toggle');
+            if (b) b.textContent = document.documentElement.getAttribute('data-theme') === 'light' ? '🌙' : '☀️';
+          })();
+        </script>
         <span id="busy" class="htmx-indicator text-xs text-amber-300 ml-2">working…</span>
       </div>
     </div>
