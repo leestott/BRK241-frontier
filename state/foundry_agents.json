@@ -1,0 +1,14 @@
+{
+  "incident_analysis": {
+    "agent_name": "fibreops-incident-analysis",
+    "version": "1"
+  },
+  "netops_coordinator": {
+    "agent_name": "fibreops-netops-coordinator",
+    "version": "1"
+  },
+  "field_dispatch": {
+    "agent_name": "fibreops-field-dispatch",
+    "version": "1"
+  }
+}

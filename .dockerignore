@@ -1,0 +1,40 @@
+# Local build artefacts
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+
+# Local config + state (never bake into the image)
+.env
+.env.*
+state/
+!state/foundry_agents.json
+.azure/
+
+# Editor / OS noise
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Docs + tests aren't needed at runtime
+docs/
+tests/
+README.md
+CONTRIBUTING.md
+SECURITY.md
+CODE_OF_CONDUCT.md
+LICENSE
+*.md
+
+# Infra (the image itself doesn't deploy infra)
+infra/
+azure.yaml

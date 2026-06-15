@@ -1,0 +1,19 @@
+{% if not cards %}
+  <p class="text-slate-500 text-sm">No Teams cards posted yet.</p>
+{% else %}
+<ul class="space-y-2">
+  {% for card in cards %}
+  <li class="teams-card">
+    <div class="text-sm font-medium text-slate-100">{{ card.title }}</div>
+    {% if card.summary %}<div class="text-xs text-slate-300 mt-0.5">{{ card.summary }}</div>{% endif %}
+    {% if card.facts %}
+      <dl class="text-[11px] text-slate-400 mt-1 grid grid-cols-[auto_1fr] gap-x-2">
+        {% for f in card.facts %}
+        <dt class="font-mono">{{ f.title }}</dt><dd>{{ f.value }}</dd>
+        {% endfor %}
+      </dl>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}

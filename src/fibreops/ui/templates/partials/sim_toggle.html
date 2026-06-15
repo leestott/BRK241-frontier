@@ -1,0 +1,11 @@
+{% if sim_running %}
+  <button class="btn-danger"
+          hx-post="/actions/simulate/off"
+          hx-target="#sim-toggle"
+          hx-swap="innerHTML">⏹ Stop simulation</button>
+{% else %}
+  <button class="btn-secondary"
+          hx-post="/actions/simulate/on"
+          hx-target="#sim-toggle"
+          hx-swap="innerHTML">▶ Start simulation</button>
+{% endif %}

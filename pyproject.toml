@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fibreops"
+version = "0.1.0"
+description = "Autonomous Fibre Outage Response System — Foundry Agent Service demo"
+requires-python = ">=3.10"
+readme = "README.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+fibreops = [
+    "ui/templates/*.html",
+    "ui/templates/**/*.html",
+    "ui/static/*",
+    "data/*.md",
+    "data/*.json",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

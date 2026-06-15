@@ -1,0 +1,352 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.42.1.51946",
+      "templateHash": "9946325613017392483"
+    }
+  },
+  "parameters": {
+    "namePrefix": {
+      "type": "string",
+      "defaultValue": "fbreops",
+      "minLength": 3,
+      "maxLength": 8,
+      "metadata": {
+        "description": "Short prefix used for all resource names (3-8 lowercase chars)."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for deployment."
+      }
+    },
+    "eventHubSku": {
+      "type": "string",
+      "defaultValue": "Standard",
+      "allowedValues": [
+        "Basic",
+        "Standard",
+        "Premium"
+      ],
+      "metadata": {
+        "description": "Event Hub SKU (Standard required for AAD auth)."
+      }
+    },
+    "containerImageName": {
+      "type": "string",
+      "defaultValue": "mcr.microsoft.com/k8se/quickstart:latest",
+      "metadata": {
+        "description": "Container image reference (registry/repo:tag) for the FibreOps NOC service. AZD overrides this after the first build."
+      }
+    },
+    "azureAiProjectEndpoint": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Foundry project endpoint (https://<acct>.services.ai.azure.com/api/projects/<proj>). Empty = run with local backend."
+      }
+    },
+    "azureAiModelDeployment": {
+      "type": "string",
+      "defaultValue": "gpt-4o-mini",
+      "metadata": {
+        "description": "Foundry model deployment name."
+      }
+    },
+    "fibreopsAgentBackend": {
+      "type": "string",
+      "defaultValue": "hosted",
+      "allowedValues": [
+        "auto",
+        "hosted",
+        "foundry",
+        "local"
+      ],
+      "metadata": {
+        "description": "Agent backend resolution: auto | hosted | foundry | local"
+      }
+    },
+    "serviceName": {
+      "type": "string",
+      "defaultValue": "fibreops-noc",
+      "metadata": {
+        "description": "Tag value AZD uses to map this resource to the named service in azure.yaml."
+      }
+    }
+  },
+  "variables": {
+    "suffix": "[uniqueString(resourceGroup().id, parameters('namePrefix'))]",
+    "ehNamespaceName": "[toLower(format('{0}-ehns-{1}', parameters('namePrefix'), variables('suffix')))]",
+    "ehName": "fibre-signals",
+    "lawName": "[format('{0}-law-{1}', parameters('namePrefix'), variables('suffix'))]",
+    "kvName": "[toLower(format('{0}kv{1}', parameters('namePrefix'), substring(variables('suffix'), 0, 6)))]",
+    "appiName": "[format('{0}-appi-{1}', parameters('namePrefix'), variables('suffix'))]",
+    "acrName": "[toLower(format('{0}acr{1}', parameters('namePrefix'), substring(variables('suffix'), 0, 8)))]",
+    "planName": "[format('{0}-plan-{1}', parameters('namePrefix'), variables('suffix'))]",
+    "webName": "[toLower(format('{0}-noc-{1}', parameters('namePrefix'), substring(variables('suffix'), 0, 6)))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "apiVersion": "2023-09-01",
+      "name": "[variables('lawName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "name": "PerGB2018"
+        },
+        "retentionInDays": 30
+      }
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('appiName')]",
+      "location": "[parameters('location')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.EventHub/namespaces",
+      "apiVersion": "2024-01-01",
+      "name": "[variables('ehNamespaceName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "[parameters('eventHubSku')]",
+        "tier": "[parameters('eventHubSku')]",
+        "capacity": 1
+      },
+      "properties": {
+        "minimumTlsVersion": "1.2",
+        "disableLocalAuth": true
+      }
+    },
+    {
+      "type": "Microsoft.EventHub/namespaces/eventhubs",
+      "apiVersion": "2024-01-01",
+      "name": "[format('{0}/{1}', variables('ehNamespaceName'), variables('ehName'))]",
+      "properties": {
+        "messageRetentionInDays": 1,
+        "partitionCount": 2
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.EventHub/namespaces', variables('ehNamespaceName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults",
+      "apiVersion": "2024-11-01",
+      "name": "[variables('kvName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "sku": {
+          "family": "A",
+          "name": "standard"
+        },
+        "tenantId": "[subscription().tenantId]",
+        "enableRbacAuthorization": true,
+        "enableSoftDelete": true,
+        "softDeleteRetentionInDays": 7,
+        "publicNetworkAccess": "Enabled"
+      }
+    },
+    {
+      "type": "Microsoft.ContainerRegistry/registries",
+      "apiVersion": "2023-11-01-preview",
+      "name": "[variables('acrName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Basic"
+      },
+      "properties": {
+        "adminUserEnabled": true,
+        "publicNetworkAccess": "Enabled",
+        "anonymousPullEnabled": false
+      }
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2024-04-01",
+      "name": "[variables('planName')]",
+      "location": "[parameters('location')]",
+      "kind": "linux",
+      "sku": {
+        "name": "B1",
+        "tier": "Basic"
+      },
+      "properties": {
+        "reserved": true
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2024-04-01",
+      "name": "[variables('webName')]",
+      "location": "[parameters('location')]",
+      "kind": "app,linux,container",
+      "tags": {
+        "azd-service-name": "[parameters('serviceName')]"
+      },
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
+        "httpsOnly": true,
+        "publicNetworkAccess": "Enabled",
+        "siteConfig": {
+          "linuxFxVersion": "[format('DOCKER|{0}', parameters('containerImageName'))]",
+          "alwaysOn": true,
+          "ftpsState": "Disabled",
+          "http20Enabled": true,
+          "minTlsVersion": "1.2",
+          "healthCheckPath": "/healthz",
+          "acrUseManagedIdentityCreds": false,
+          "appSettings": [
+            {
+              "name": "DOCKER_REGISTRY_SERVER_URL",
+              "value": "[format('https://{0}', reference(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), '2023-11-01-preview').loginServer)]"
+            },
+            {
+              "name": "DOCKER_REGISTRY_SERVER_USERNAME",
+              "value": "[listCredentials(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), '2023-11-01-preview').username]"
+            },
+            {
+              "name": "DOCKER_REGISTRY_SERVER_PASSWORD",
+              "value": "[listCredentials(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), '2023-11-01-preview').passwords[0].value]"
+            },
+            {
+              "name": "WEBSITES_PORT",
+              "value": "8800"
+            },
+            {
+              "name": "WEBSITES_ENABLE_APP_SERVICE_STORAGE",
+              "value": "false"
+            },
+            {
+              "name": "FIBREOPS_AGENT_BACKEND",
+              "value": "[parameters('fibreopsAgentBackend')]"
+            },
+            {
+              "name": "AZURE_AI_PROJECT_ENDPOINT",
+              "value": "[parameters('azureAiProjectEndpoint')]"
+            },
+            {
+              "name": "AZURE_AI_MODEL_DEPLOYMENT",
+              "value": "[parameters('azureAiModelDeployment')]"
+            },
+            {
+              "name": "EVENT_HUB_FQDN",
+              "value": "[format('{0}.servicebus.windows.net', variables('ehNamespaceName'))]"
+            },
+            {
+              "name": "EVENT_HUB_NAME",
+              "value": "[variables('ehName')]"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appiName')), '2020-02-02').ConnectionString]"
+            },
+            {
+              "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('appiName')), '2020-02-02').InstrumentationKey]"
+            },
+            {
+              "name": "FIBREOPS_UI_HOST",
+              "value": "0.0.0.0"
+            },
+            {
+              "name": "FIBREOPS_UI_PORT",
+              "value": "8800"
+            },
+            {
+              "name": "KEY_VAULT_NAME",
+              "value": "[variables('kvName')]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ContainerRegistry/registries', variables('acrName'))]",
+        "[resourceId('Microsoft.Insights/components', variables('appiName'))]",
+        "[resourceId('Microsoft.EventHub/namespaces/eventhubs', variables('ehNamespaceName'), variables('ehName'))]",
+        "[resourceId('Microsoft.EventHub/namespaces', variables('ehNamespaceName'))]",
+        "[resourceId('Microsoft.KeyVault/vaults', variables('kvName'))]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "AZURE_LOCATION": {
+      "type": "string",
+      "value": "[parameters('location')]"
+    },
+    "AZURE_RESOURCE_GROUP": {
+      "type": "string",
+      "value": "[resourceGroup().name]"
+    },
+    "AZURE_APP_SERVICE_PLAN_NAME": {
+      "type": "string",
+      "value": "[variables('planName')]"
+    },
+    "AZURE_APP_SERVICE_NAME": {
+      "type": "string",
+      "value": "[variables('webName')]"
+    },
+    "AZURE_APP_SERVICE_PRINCIPAL_ID": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', variables('webName')), '2024-04-01', 'full').identity.principalId]"
+    },
+    "AZURE_APP_SERVICE_HOSTNAME": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', variables('webName')), '2024-04-01').defaultHostName]"
+    },
+    "AZURE_APP_SERVICE_URL": {
+      "type": "string",
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('webName')), '2024-04-01').defaultHostName)]"
+    },
+    "M365_ACTION_BASE_URL": {
+      "type": "string",
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', variables('webName')), '2024-04-01').defaultHostName)]"
+    },
+    "AZURE_CONTAINER_REGISTRY_ENDPOINT": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ContainerRegistry/registries', variables('acrName')), '2023-11-01-preview').loginServer]"
+    },
+    "AZURE_CONTAINER_REGISTRY_NAME": {
+      "type": "string",
+      "value": "[variables('acrName')]"
+    },
+    "EVENT_HUB_FQDN": {
+      "type": "string",
+      "value": "[format('{0}.servicebus.windows.net', variables('ehNamespaceName'))]"
+    },
+    "EVENT_HUB_NAME": {
+      "type": "string",
+      "value": "[variables('ehName')]"
+    },
+    "KEY_VAULT_NAME": {
+      "type": "string",
+      "value": "[variables('kvName')]"
+    },
+    "APPLICATIONINSIGHTS_CONNECTION_STRING": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Insights/components', variables('appiName')), '2020-02-02').ConnectionString]"
+    },
+    "AZURE_LOG_ANALYTICS_WORKSPACE_ID": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]"
+    }
+  }
+}

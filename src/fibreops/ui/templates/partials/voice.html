@@ -1,0 +1,18 @@
+{% if not utterances %}
+  <p class="text-slate-500 text-sm">No voice updates yet. Click <span class="font-mono">🔊 Speak status</span> in the header to push the latest incident through Voice Live.</p>
+{% else %}
+  <ul class="space-y-2">
+    {% for u in utterances %}
+      <li class="rounded border border-slate-700 bg-slate-900/60 p-2">
+        <div class="flex items-center justify-between text-xs">
+          <span class="badge sev-{{ u.severity }}">{{ u.severity|upper }}</span>
+          <span class="font-mono text-slate-400">{{ u.voice }}</span>
+        </div>
+        <p class="mt-1 text-sm leading-snug text-slate-200">“{{ u.text }}”</p>
+        <p class="mt-1 text-[10px] text-slate-500 font-mono">
+          {{ u.incident_id }} · {{ u.phrase }} · {{ u.ts[:19] }}
+        </p>
+      </li>
+    {% endfor %}
+  </ul>
+{% endif %}

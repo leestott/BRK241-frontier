@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "namePrefix":              { "value": "fbreops" },
+    "location":                { "value": "${AZURE_LOCATION=swedencentral}" },
+    "containerImageName":      { "value": "${SERVICE_FIBREOPS_NOC_IMAGE_NAME=mcr.microsoft.com/k8se/quickstart:latest}" },
+    "azureAiProjectEndpoint":  { "value": "${AZURE_AI_PROJECT_ENDPOINT=}" },
+    "azureAiModelDeployment":  { "value": "${AZURE_AI_MODEL_DEPLOYMENT=gpt-4o-mini}" },
+    "fibreopsAgentBackend":    { "value": "${FIBREOPS_AGENT_BACKEND=hosted}" }
+  }
+}

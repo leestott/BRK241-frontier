@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FibreOps NOC Console — BRK241</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22><text y=%2214%22 font-size=%2214%22>🛰️</text></svg>" />
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans">
+
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
+    <div class="max-w-screen-2xl mx-auto px-4 py-3 flex items-center gap-4 flex-wrap">
+      <div class="flex items-center gap-2">
+        <span class="text-2xl">🛰️</span>
+        <div>
+          <h1 class="text-lg font-semibold leading-tight">FibreOps NOC Console</h1>
+          <p class="text-xs text-slate-400 leading-tight">Autonomous fibre outage response · BRK241</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 ml-6 text-xs">
+        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">
+          backend · <span class="font-mono text-emerald-300">{{ backend }}</span>
+        </span>
+        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">
+          netops · <span class="font-mono {{ 'text-violet-300' if netops_routine else 'text-slate-400' }}">{{ 'routine' if netops_routine else 'agent' }}</span>
+        </span>
+        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">
+          auto-dispatch · <span class="font-mono {{ 'text-emerald-300' if auto_dispatch else 'text-amber-300' }}">{{ 'on' if auto_dispatch else 'off' }}</span>
+        </span>
+        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">
+          teams · <span class="font-mono {{ 'text-emerald-300' if teams_enabled else 'text-slate-400' }}">{{ 'live' if teams_enabled else 'outbox' }}</span>
+        </span>
+        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">
+          voice · <span class="font-mono {{ 'text-emerald-300' if voice_live_enabled else 'text-slate-400' }}">{{ 'voice-live' if voice_live_enabled else 'outbox' }}</span>
+        </span>
+        <span class="px-2 py-1 rounded bg-slate-800 border border-slate-700">
+          iq · <span class="font-mono {{ 'text-emerald-300' if (web_iq_enabled or work_iq_enabled) else ('text-sky-300' if foundry_iq_enabled else 'text-slate-400') }}">
+            {%- if web_iq_enabled or work_iq_enabled -%}foundry-iq
+            {%- elif foundry_iq_enabled -%}fixtures
+            {%- else -%}off{%- endif -%}
+          </span>
+        </span>
+      </div>
+
+      <div class="ml-auto flex flex-wrap items-center gap-2">
+        <button class="btn-primary"
+                hx-post="/actions/inject?count=1"
+                hx-target="#runs-panel"
+                hx-swap="innerHTML"
+                hx-indicator="#busy">⚡ Inject signal</button>
+        <button class="btn-warning"
+                hx-post="/actions/inject?count=1&critical=true"
+                hx-target="#runs-panel"
+                hx-swap="innerHTML"
+                hx-indicator="#busy">🚨 Inject critical</button>
+        <button class="btn-secondary"
+                hx-post="/actions/voice"
+                hx-target="#voice-panel"
+                hx-swap="innerHTML"
+                hx-indicator="#busy">🔊 Speak status</button>
+        <span id="sim-toggle" hx-get="/partials/sim" hx-trigger="load" hx-swap="innerHTML"></span>
+        <button class="btn-secondary"
+                hx-post="/actions/optimise"
+                hx-target="#optimiser-panel"
+                hx-swap="innerHTML"
+                hx-indicator="#busy">📊 Run optimiser</button>
+        <button class="btn-ghost"
+                hx-post="/actions/reset"
+                hx-target="#runs-panel"
+                hx-swap="innerHTML"
+                hx-confirm="Truncate state files (runs, traces, teams outbox, D365 store)?">🧹 Reset state</button>
+        <span id="busy" class="htmx-indicator text-xs text-amber-300 ml-2">working…</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-screen-2xl mx-auto px-4 py-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+    <section class="lg:col-span-4 panel">
+      <header class="panel-header">
+        <h2>Active incidents</h2>
+        <span class="text-xs text-slate-400">polling · 3s</span>
+      </header>
+      <div id="runs-panel"
+           class="panel-body"
+           hx-get="/partials/runs"
+           hx-trigger="load, every 3s"
+           hx-swap="innerHTML">
+        <p class="text-slate-500 text-sm">Loading…</p>
+      </div>
+    </section>
+
+    <section class="lg:col-span-5 panel">
+      <header class="panel-header">
+        <h2>Incident detail</h2>
+        <span class="text-xs text-slate-400">click a card</span>
+      </header>
+      <div id="detail-panel" class="panel-body">
+        <p class="text-slate-500 text-sm">Select an incident on the left to see the agent decision timeline.</p>
+      </div>
+    </section>
+
+    <section class="lg:col-span-3 flex flex-col gap-4">
+      <div class="panel">
+        <header class="panel-header">
+          <h2>Optimiser</h2>
+          <span class="text-xs text-slate-400">manual</span>
+        </header>
+        <div id="optimiser-panel"
+             class="panel-body"
+             hx-get="/partials/optimiser"
+             hx-trigger="load"
+             hx-swap="innerHTML">
+          <p class="text-slate-500 text-sm">Loading…</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <header class="panel-header">
+          <h2>Teams notifications</h2>
+          <span class="text-xs text-slate-400">polling · 5s</span>
+        </header>
+        <div id="teams-panel"
+             class="panel-body"
+             hx-get="/partials/teams"
+             hx-trigger="load, every 5s"
+             hx-swap="innerHTML">
+          <p class="text-slate-500 text-sm">Loading…</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <header class="panel-header">
+          <h2>Voice Live updates</h2>
+          <span class="text-xs text-slate-400">polling · 5s</span>
+        </header>
+        <div id="voice-panel"
+             class="panel-body"
+             hx-get="/partials/voice"
+             hx-trigger="load, every 5s"
+             hx-swap="innerHTML">
+          <p class="text-slate-500 text-sm">Loading…</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <header class="panel-header">
+          <h2>Knowledge sources <span class="text-xs text-slate-400 font-normal">(Foundry IQ)</span></h2>
+          <span class="text-xs text-slate-400">polling · 6s</span>
+        </header>
+        <div id="iq-panel"
+             class="panel-body"
+             hx-get="/partials/iq"
+             hx-trigger="load, every 6s"
+             hx-swap="innerHTML">
+          <p class="text-slate-500 text-sm">Loading…</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="text-center text-xs text-slate-500 py-4">
+    Foundry endpoint: <span class="font-mono">{{ foundry_endpoint }}</span>
+  </footer>
+
+</body>
+</html>

@@ -1,0 +1,8 @@
+[
+  {"node_id": "FN-LDN-001", "region": "London", "site": "Shoreditch CO", "upstream": null, "customers_served": 12400, "criticality": "critical"},
+  {"node_id": "FN-LDN-014", "region": "London", "site": "Canary Wharf Vault", "upstream": "FN-LDN-001", "customers_served": 8400, "criticality": "high"},
+  {"node_id": "FN-MAN-007", "region": "Manchester", "site": "Trafford Exchange", "upstream": null, "customers_served": 6300, "criticality": "high"},
+  {"node_id": "FN-EDI-003", "region": "Edinburgh", "site": "Leith Distribution", "upstream": null, "customers_served": 2200, "criticality": "medium"},
+  {"node_id": "FN-BRS-002", "region": "Bristol", "site": "Temple Quay Hub", "upstream": null, "customers_served": 4100, "criticality": "medium"},
+  {"node_id": "FN-CRD-005", "region": "Cardiff", "site": "Bay Cabinet 5", "upstream": "FN-BRS-002", "customers_served": 900, "criticality": "low"}
+]

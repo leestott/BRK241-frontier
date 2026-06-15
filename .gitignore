@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.local
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+.azure/
+
+# state/ holds ephemeral runtime data (jsonl logs, sqlite memory, mock D365 store).
+# We ignore the whole directory, then whitelist the published-agents registry
+# so the Dockerfile can bake it into the image. `demo publish` overwrites it
+# locally with the deployer's own versioned agents.
+state/*
+!state/foundry_agents.json
+
+# Stray local logs (azd, acr build streams, etc.) — never commit
+*.log
+azd-*.log

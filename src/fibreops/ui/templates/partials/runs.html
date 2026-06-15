@@ -1,0 +1,35 @@
+{% if not runs %}
+  <p class="text-slate-500 text-sm">No incidents yet. Click <span class="text-emerald-300 font-medium">⚡ Inject signal</span> to fire one.</p>
+{% endif %}
+
+<ul class="space-y-2">
+{% for run in runs %}
+  <li>
+    <button class="w-full text-left card sev-{{ run.severity }}"
+            hx-get="/partials/run/{{ run.run_id }}"
+            hx-target="#detail-panel"
+            hx-swap="innerHTML">
+      <div class="flex items-start gap-2">
+        <span class="sev-dot sev-{{ run.severity }}"></span>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="font-mono text-sm text-slate-200 truncate">{{ run.node_id or '?' }}</span>
+            <span class="badge sev-{{ run.severity }}">{{ run.severity }}</span>
+            {% if run.dispatched %}<span class="badge badge-ok">dispatched</span>{% endif %}
+          </div>
+          <div class="text-xs text-slate-400 mt-0.5 truncate">
+            {{ run.signal_type or '?' }} · {{ run.region or '?' }} · {{ '{:,}'.format(run.customers_served) }} customers
+          </div>
+          {% if run.summary %}
+            <div class="text-xs text-slate-500 mt-1 line-clamp-2">{{ run.summary }}</div>
+          {% endif %}
+          {% if run.engineer_name %}
+            <div class="text-xs text-emerald-300 mt-1">→ {{ run.engineer_name }} · ETA {{ run.eta_minutes }} min</div>
+          {% endif %}
+        </div>
+        <span class="text-[10px] text-slate-500 font-mono shrink-0">{{ run.started_at[11:19] if run.started_at else '' }}</span>
+      </div>
+    </button>
+  </li>
+{% endfor %}
+</ul>
