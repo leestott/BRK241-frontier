@@ -125,19 +125,30 @@
   }
 
   function sendSessionUpdate() {
-    const turnDetection = mode === "mic"
-      ? { type: "server_vad", threshold: 0.5, prefix_padding_ms: 300, silence_duration_ms: 600 }
-      : null;
-    send({
-      type: "session.update",
-      session: {
-        modalities: mode === "mic" ? ["audio", "text"] : ["audio"],
-        voice: session.voice,
-        input_audio_format: "pcm16",
-        output_audio_format: "pcm16",
-        turn_detection: turnDetection,
-      },
-    });
+    // Voice must be a structured object for Voice Live API
+    const voiceObj = session.agent_id
+      ? session.voice  // custom agent may override voice config
+      : { name: session.voice, type: session.voice_type || "azure-standard" };
+    const sess = {
+      modalities: mode === "mic" ? ["audio", "text"] : ["audio"],
+      voice: voiceObj,
+      input_audio_format: "pcm16",
+      output_audio_format: "pcm16",
+      input_audio_sampling_rate: 24000,
+    };
+    if (mode === "mic") {
+      // Mic-only fields. server_echo_cancellation requires turn detection.
+      sess.turn_detection = {
+        type: "azure_semantic_vad",
+        threshold: 0.5,
+        prefix_padding_ms: 300,
+        silence_duration_ms: 500,
+      };
+      sess.input_audio_noise_reduction = { type: "azure_deep_noise_suppression" };
+      sess.input_audio_echo_cancellation = { type: "server_echo_cancellation" };
+      sess.input_audio_transcription = { model: "azure-speech", language: "en" };
+    }
+    send({ type: "session.update", session: sess });
   }
 
   function send(obj) {
@@ -173,12 +184,30 @@
     }
   }
 
+  function speakBrowserTts(text) {
+    if (!window.speechSynthesis) return false;
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang = "en-GB";
+    utt.rate = 1.05;
+    // Prefer a British voice if available, else default.
+    const voices = window.speechSynthesis.getVoices();
+    const gb = voices.find((v) => v.lang === "en-GB") ||
+                voices.find((v) => v.lang.startsWith("en"));
+    if (gb) utt.voice = gb;
+    utt.onstart = () => setStatus("Speaking…", "ok");
+    utt.onend = () => setStatus("Idle", "info");
+    utt.onerror = () => setStatus("Speech error", "error");
+    window.speechSynthesis.speak(utt);
+    return true;
+  }
+
   async function speak(text, opts) {
     opts = opts || {};
     await loadSession();
     if (!session.enabled) {
-      setStatus("Voice Live not configured (text-only fallback)", "warn");
-      return false;
+      // No Voice Live endpoint — use browser built-in TTS as demo fallback.
+      return speakBrowserTts(text);
     }
     if (!text || !text.trim()) return false;
     nextPlayTime = 0;
@@ -214,8 +243,12 @@
 
   async function startMic() {
     await loadSession();
+    if (!session.enabled) {
+      setStatus("Talk to agent requires AZURE_VOICE_LIVE_ENDPOINT", "warn");
+      return;
+    }
     if (!session.duplex_enabled) {
-      setStatus("Talk to agent needs AZURE_VOICE_LIVE_AGENT_ID", "warn");
+      setStatus("Talk to agent requires AZURE_VOICE_LIVE_AGENT_ID", "warn");
       return;
     }
     let stream;

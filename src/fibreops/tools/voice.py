@@ -96,17 +96,20 @@ def _post_voice_live(payload: dict[str, Any]) -> dict[str, Any]:
     JSON payload. This lets a customer wire a Voice Live front door (or a
     plain Azure AI Speech TTS endpoint) with zero code changes.
     """
+    # Always write to the local outbox first — the browser JS reads data-latest-text
+    # from the voice partial and calls speakBrowserTts / Voice Live WebSocket.
+    _OUTBOX.parent.mkdir(exist_ok=True)
+    with _OUTBOX.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(payload) + "\n")
     settings = get_settings()
     if not settings.azure_voice_live_endpoint:
-        _OUTBOX.parent.mkdir(exist_ok=True)
-        with _OUTBOX.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(payload) + "\n")
         logger.info("Voice Live not configured; appended utterance to outbox")
         return {"status": "logged-locally", "outbox": str(_OUTBOX)}
+    # Endpoint configured — best-effort HTTP POST for server-side delivery.
     headers = {"Content-Type": "application/json"}
     if settings.azure_voice_live_api_key:
         headers["Ocp-Apim-Subscription-Key"] = settings.azure_voice_live_api_key
-    with httpx.Client(timeout=10.0) as client:
+    with httpx.Client(timeout=5.0) as client:
         response = client.post(
             settings.azure_voice_live_endpoint, json=payload, headers=headers
         )

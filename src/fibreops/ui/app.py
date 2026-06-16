@@ -33,13 +33,14 @@ import asyncio
 import contextlib
 import json
 import os
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import httpx
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -292,7 +293,7 @@ async def _lifespan(app: FastAPI):
     init_observability()
     settings = get_settings()
     d365_server: uvicorn.Server | None = None
-    d365_task: asyncio.Task | None = None
+    d365_thread: threading.Thread | None = None
     spawn_d365 = os.getenv("FIBREOPS_UI_SKIP_MOCK_D365", "").lower() not in ("1", "true", "yes")
     if spawn_d365:
         from ..mocks.d365_service import app as d365_app
@@ -305,7 +306,16 @@ async def _lifespan(app: FastAPI):
             access_log=False,
         )
         d365_server = uvicorn.Server(cfg)
-        d365_task = asyncio.create_task(d365_server.serve())
+
+        # Run the D365 mock in a separate thread with its own event loop.
+        # This prevents synchronous httpx.Client calls (from hosted-agent tool
+        # callbacks) from deadlocking the main asyncio event loop when they
+        # connect to the mock service.
+        def _run_d365() -> None:
+            asyncio.run(d365_server.serve())
+
+        d365_thread = threading.Thread(target=_run_d365, daemon=True, name="d365-mock")
+        d365_thread.start()
         if not await _wait_for_d365(settings.d365_mock_base_url):
             logger.warning("mock D365 did not become ready in time")
     try:
@@ -319,9 +329,7 @@ async def _lifespan(app: FastAPI):
             _sim.task = None
         if d365_server:
             d365_server.should_exit = True
-        if d365_task:
-            with contextlib.suppress(BaseException):
-                await asyncio.wait_for(d365_task, timeout=3.0)
+        # Thread is daemon — exits automatically when the main process ends.
 
 
 # --- app factory --------------------------------------------------------------
@@ -363,12 +371,17 @@ def create_app() -> FastAPI:
         return JSONResponse(session_descriptor())
 
     @app.websocket("/ws/voice")
-    async def ws_voice(websocket) -> None:  # type: ignore[no-untyped-def]
+    async def ws_voice(websocket: WebSocket) -> None:
         """Bridge the browser to the upstream Azure Voice Live realtime WS."""
         from ..voice_live import proxy_session
 
         await websocket.accept()
-        await proxy_session(websocket)
+        try:
+            await proxy_session(websocket)
+        except Exception as exc:
+            logger.error("ws_voice: unhandled exception: %s", exc, exc_info=True)
+            with contextlib.suppress(Exception):
+                await websocket.close(code=1011, reason="proxy error")
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

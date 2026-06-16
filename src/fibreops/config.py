@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     # Realtime API version string passed as a query parameter on the upstream
     # WebSocket URL. Override if Microsoft ships a newer Voice Live preview.
     azure_voice_live_api_version: str = Field(
-        default="2025-05-01-preview", alias="AZURE_VOICE_LIVE_API_VERSION"
+        default="2026-04-10", alias="AZURE_VOICE_LIVE_API_VERSION"
     )
 
     # Foundry IQ — knowledge grounding (BRK241 slide 4 / slide 9).
