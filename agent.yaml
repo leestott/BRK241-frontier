@@ -1,0 +1,38 @@
+# Hosted agent manifest — Foundry Agent Service (preview, V1Preview).
+# Declares the FibreOps "Outage Response Agent System" as a containerised
+# hosted agent. See:
+#   https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agents
+#   https://learn.microsoft.com/azure/foundry/agents/how-to/deploy-hosted-agent
+#
+# Deploy with the Foundry CLI / azd, or with `python -m fibreops.demo deploy-hosted`
+# (which builds this same definition via the azure-ai-projects SDK).
+kind: hosted
+name: fibreops-outage-response
+
+# x86_64 image built from src/fibreops/agents/Dockerfile.hosted and pushed to
+# Azure Container Registry. Override the tag per release; avoid ":latest".
+container_configuration:
+  image: ${FIBREOPS_HOSTED_IMAGE}
+
+# Per-session sandbox size (one of 0.5/1Gi, 1/2Gi, 2/4Gi). The agent runs the
+# full analyse → coordinate → dispatch flow in-process, so 1 vCPU / 2 GiB.
+cpu: "1"
+memory: "2Gi"
+
+# The container serves the OpenAI-compatible /responses contract on port 8088
+# via agent_framework_foundry_hosting.ResponsesHostServer.
+protocol_versions:
+  - protocol: responses
+    version: "1.0.0"
+
+# User-declared runtime configuration. Do NOT add FOUNDRY_* or
+# APPLICATIONINSIGHTS_CONNECTION_STRING — the platform injects those.
+environment_variables:
+  # Model deployment the agent reasons with (read as MODEL_DEPLOYMENT_NAME).
+  MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+  # Foundry IQ grounding stays on; Web/Work IQ fall back to fixtures when no
+  # FOUNDRY_WEB_IQ_ENDPOINT / FOUNDRY_WORK_IQ_ENDPOINT is configured.
+  FIBREOPS_FOUNDRY_IQ: "true"
+  # Optional — light up hosted memory + toolbox by setting these:
+  # FOUNDRY_MEMORY_STORE_NAME: fibreops-procedural-memory
+  # FIBREOPS_FOUNDRY_TOOLBOX: "true"

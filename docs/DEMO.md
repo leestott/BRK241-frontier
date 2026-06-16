@@ -222,6 +222,8 @@ show resolved backend   :  python -m fibreops.demo backend
 RUN THE DEMO            :  python -m fibreops.demo --signals 3
 show last Teams card    :  python -m fibreops.demo card
 LAUNCH WEB CONSOLE      :  python -m fibreops.demo ui      # http://127.0.0.1:8800
+serve hosted agent      :  python -m fibreops.demo serve-hosted   # /responses on 8088
+deploy hosted agent     :  pwsh scripts/deploy-hosted-agent.ps1 -RegistryName <acr>
 chat via Copilot SDK    :  python -m fibreops.demo chat "status"
 build M365 package      :  python -m fibreops.demo publish-m365
 turn on Routines        :  $env:FIBREOPS_NETOPS_ROUTINE = "1"
@@ -315,6 +317,7 @@ can flip between terminal and browser freely and they always agree.
 | --------------------- | -------------------- | ------------------------------------------------ |
 | Telemetry             | Generator or Event Hub | Real OLT → Event Hub (same code)               |
 | Agents                | **Foundry-hosted Prompt Agents** | Identical                                |
+| Hosted agent (container) | `serve-hosted` locally, `deploy-hosted` to Foundry | Containerised hosted agent in Foundry Agent Service |
 | NetOps coordinator    | Optional Foundry **Routine** (`FIBREOPS_NETOPS_ROUTINE=1`) | Hosted Routine (when SDK exposes it) |
 | Function tools        | Real Python in-process | Identical                                      |
 | Ticketing             | FastAPI mock D365      | Dataverse v9.2 (change `D365_MOCK_BASE_URL`)   |

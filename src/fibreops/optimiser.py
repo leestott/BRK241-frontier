@@ -2,9 +2,11 @@
 
 Reads ./state/runs.jsonl + ./state/traces.jsonl, scores each run against a
 deterministic rubric, and emits improvement suggestions for the prompt /
-tooling. In production this is where you would plug in Foundry's Evaluators
-(`agent_framework_foundry.FoundryEvals`) — the scoring contract here is
-identical so swapping in the cloud evaluator is a one-file change.
+tooling. When ``FIBREOPS_FOUNDRY_EVALS`` is set (and a Foundry project endpoint
+is configured) it additionally runs the cloud Evaluators
+(`agent_framework_foundry.evaluate_traces`) over recent agent traces and folds
+the metrics into the summary — otherwise the local rubric is authoritative, so
+the optimiser stays fully offline by default.
 
 Every scored run also emits OpenTelemetry span events
 (``fibreops.optimiser.score``, ``fibreops.optimiser.criterion``) so the
@@ -17,6 +19,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .config import get_settings
 from .observability import get_logger, get_tracer, record_event
 
 logger = get_logger(__name__)
@@ -154,6 +157,67 @@ def suggest_improvements(scored: list[dict[str, Any]]) -> list[dict[str, str]]:
     return suggestions
 
 
+def _summarise_eval_results(results: Any) -> dict[str, Any]:
+    """Best-effort reduction of a Foundry ``EvalResults`` into a compact dict.
+
+    The exact shape varies by SDK version, so we probe a few common surfaces
+    (``.metrics`` / ``.summary`` / mapping) and fall back to ``str(results)``.
+    """
+    for attr in ("metrics", "summary", "aggregated_metrics", "scores"):
+        value = getattr(results, attr, None)
+        if isinstance(value, dict) and value:
+            return {"metrics": {k: value[k] for k in list(value)[:20]}}
+    if isinstance(results, dict) and results:
+        return {"metrics": {k: results[k] for k in list(results)[:20]}}
+    return {"raw": str(results)[:2000]}
+
+
+def run_foundry_evals(lookback_hours: int = 24) -> dict[str, Any] | None:
+    """Run Foundry cloud Evaluators over recent agent traces, when enabled.
+
+    Gated by ``FIBREOPS_FOUNDRY_EVALS`` (+ a configured project endpoint). When
+    off — the default — this is a no-op so the optimiser stays fully offline.
+    Any failure degrades gracefully to ``None`` (local rubric remains primary).
+    """
+    settings = get_settings()
+    if not settings.foundry_evals_enabled:
+        return None
+    if not settings.azure_ai_project_endpoint:
+        logger.warning("foundry evals enabled but AZURE_AI_PROJECT_ENDPOINT not set; skipping")
+        return None
+    try:
+        from agent_framework_foundry import FoundryEvals, evaluate_traces
+        from azure.ai.projects import AIProjectClient
+        from azure.identity import DefaultAzureCredential
+    except Exception as exc:  # pragma: no cover - optional cloud deps
+        logger.warning("foundry evals dependencies unavailable: %s", exc)
+        return None
+    try:
+        project_client = AIProjectClient(
+            endpoint=settings.azure_ai_project_endpoint,
+            credential=DefaultAzureCredential(),
+            allow_preview=True,
+        )
+        results = evaluate_traces(
+            project_client=project_client,
+            model=settings.azure_ai_model_deployment,
+            evaluators=[
+                FoundryEvals.COHERENCE,
+                FoundryEvals.RELEVANCE,
+                FoundryEvals.TASK_ADHERENCE,
+            ],
+            lookback_hours=lookback_hours,
+            eval_name="FibreOps optimiser",
+        )
+        summary = _summarise_eval_results(results)
+        record_event("fibreops.optimiser.foundry_evals", lookback_hours=lookback_hours)
+        logger.info("foundry evals completed", extra={"lookback_hours": lookback_hours})
+        return summary
+    except Exception as exc:  # pragma: no cover - network/cloud path
+        logger.warning("foundry evals run failed, using local rubric only: %s", exc)
+        return None
+
+
 def run_optimisation() -> dict[str, Any]:
     runs = _load_runs()
     if not runs:
@@ -194,6 +258,10 @@ def run_optimisation() -> dict[str, Any]:
         "scores": scored,
         "suggestions": suggestions,
     }
+    # Optional: augment the local rubric with Foundry cloud Evaluators.
+    foundry = run_foundry_evals()
+    if foundry is not None:
+        summary["foundry_evals"] = foundry
     with SUGGESTIONS_FILE.open("w", encoding="utf-8") as f:
         f.write(json.dumps(summary, indent=2, default=str))
     return summary

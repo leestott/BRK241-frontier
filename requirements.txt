@@ -1,6 +1,6 @@
 # --- Real Azure SDKs ---
 azure-identity>=1.19.0
-azure-ai-projects>=1.0.0b10
+azure-ai-projects>=2.1.0
 azure-ai-agents>=1.0.0b3
 azure-eventhub>=5.12.1
 azure-keyvault-secrets>=4.8.0
@@ -10,6 +10,12 @@ azure-core>=1.32.0
 # --- Microsoft Agent Framework (preview) ---
 # Pinned loosely; orchestrator falls back to Foundry SDK if not installed.
 agent-framework; python_version>="3.10"
+# Foundry integration: FoundryChatClient/FoundryAgent, memory, toolbox, evals.
+agent-framework-foundry; python_version>="3.10"
+# Hosted-agent runtime: ResponsesHostServer serves /responses + /readiness.
+# Required inside the Dockerfile.hosted image; optional for local UI demo.
+agent-framework-foundry-hosting; python_version>="3.10"
+azure-ai-agentserver-responses; python_version>="3.10"
 
 # --- Teams integration ---
 pymsteams>=0.2.2

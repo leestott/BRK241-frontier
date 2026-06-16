@@ -113,6 +113,39 @@ foreach ($g in $grants) {
     }
 }
 
+# --- Hosted agent (containerised) image pulls ---
+# A Foundry **hosted agent** runs your container in a per-session sandbox; the
+# platform pulls the image using the Foundry project's managed identity, which
+# needs AcrPull (Container Registry Repository Reader) on the registry. Grant it
+# here so `python -m fibreops.demo deploy-hosted` can reach the image.
+if ($foundry -and $registry) {
+    Write-Host ""
+    Write-Host "Granting Foundry project MI AcrPull on the registry (hosted-agent image pulls)..." -ForegroundColor Cyan
+    $foundryPrincipalId = az cognitiveservices account show -g $FoundryResourceGroup -n $FoundryAccountName --query identity.principalId -o tsv
+    if (-not $foundryPrincipalId) {
+        Write-Host "  Foundry account has no system-assigned identity; enable it then re-run, or grant AcrPull manually." -ForegroundColor Yellow
+    }
+    else {
+        $existing = az role assignment list --assignee-object-id $foundryPrincipalId --assignee-principal-type ServicePrincipal --scope $registry --role "AcrPull" --query "[0].id" -o tsv 2>$null
+        if ($existing) {
+            Write-Host "  already granted -> $existing" -ForegroundColor Yellow
+        }
+        else {
+            az role assignment create `
+                --assignee-object-id $foundryPrincipalId `
+                --assignee-principal-type ServicePrincipal `
+                --role "AcrPull" `
+                --scope $registry | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "  FAILED (need Microsoft.Authorization/roleAssignments/write on the registry)" -ForegroundColor Red
+            } else {
+                Write-Host "  OK" -ForegroundColor Green
+            }
+        }
+    }
+    Write-Host "  NOTE: the user running 'deploy-hosted' also needs 'Azure AI Project Manager' at project scope." -ForegroundColor DarkGray
+}
+
 Write-Host ""
 Write-Host "Once all four grants are green, you can:" -ForegroundColor Cyan
 Write-Host "  1. Wire AcrPull on the App Service:" -ForegroundColor Cyan

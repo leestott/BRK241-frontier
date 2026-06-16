@@ -4,7 +4,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,10 +12,21 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # Foundry / AI Projects — endpoint is preferred by current SDK
-    # (e.g. https://<account>.services.ai.azure.com/api/projects/<project>)
-    azure_ai_project_endpoint: Optional[str] = Field(default=None, alias="AZURE_AI_PROJECT_ENDPOINT")
+    # (e.g. https://<account>.services.ai.azure.com/api/projects/<project>).
+    # In a Foundry **hosted agent** sandbox the platform injects
+    # ``FOUNDRY_PROJECT_ENDPOINT`` instead of ``AZURE_AI_PROJECT_ENDPOINT``, so
+    # accept either name (same code runs locally and hosted).
+    azure_ai_project_endpoint: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("AZURE_AI_PROJECT_ENDPOINT", "FOUNDRY_PROJECT_ENDPOINT"),
+    )
     azure_ai_project_connection_string: Optional[str] = Field(default=None, alias="AZURE_AI_PROJECT_CONNECTION_STRING")
-    azure_ai_model_deployment: str = Field(default="gpt-4.1-mini", alias="AZURE_AI_MODEL_DEPLOYMENT")
+    # Hosted-agent deploys conventionally pass the model as ``MODEL_DEPLOYMENT_NAME``;
+    # accept that alongside ``AZURE_AI_MODEL_DEPLOYMENT``.
+    azure_ai_model_deployment: str = Field(
+        default="gpt-4.1-mini",
+        validation_alias=AliasChoices("AZURE_AI_MODEL_DEPLOYMENT", "MODEL_DEPLOYMENT_NAME"),
+    )
 
     # Event Hub
     event_hub_fqdn: Optional[str] = Field(default=None, alias="EVENT_HUB_FQDN")
@@ -56,6 +67,39 @@ class Settings(BaseSettings):
     # When true (default), the IncidentAnalysisAgent enriches its analysis with
     # Web IQ + Work IQ snippets so the demo shows grounded reasoning.
     foundry_iq_enabled: bool = Field(default=True, alias="FIBREOPS_FOUNDRY_IQ")
+
+    # Procedural memory in Foundry Agent Service (BRK241 slide 5 / slide 15).
+    # When ``foundry_memory_store_name`` is set, the agents attach a
+    # :class:`agent_framework_foundry.FoundryMemoryProvider` context provider so
+    # learned procedures persist in Foundry's hosted memory store. When unset,
+    # the local SQLite ``state/memory.db`` (remember/recall tools) is used so the
+    # demo runs offline.
+    foundry_memory_store_name: Optional[str] = Field(default=None, alias="FOUNDRY_MEMORY_STORE_NAME")
+    foundry_memory_scope: Optional[str] = Field(default=None, alias="FOUNDRY_MEMORY_SCOPE")
+
+    # Foundry Toolbox (BRK241 slide 5 / slide 9). When true, the factory curates
+    # each role's tool surface through ``agent_framework_foundry.select_toolbox_tools``
+    # so hosted Foundry toolbox tools (web search, code interpreter, MCP, …) can be
+    # mixed with the in-process Python tools. Off by default — the in-process tools
+    # keep the demo fully offline.
+    foundry_toolbox_enabled: bool = Field(default=False, alias="FIBREOPS_FOUNDRY_TOOLBOX")
+
+    # Agent Optimizer / Foundry Evals (BRK241 slide 5 / slide 15). When true, the
+    # optimiser runs the cloud evaluators (``FoundryEvals`` / ``evaluate_traces``)
+    # in addition to the local rubric so the demo shows real Foundry evaluation
+    # scores. Off by default so the optimiser stays offline-safe.
+    foundry_evals_enabled: bool = Field(default=False, alias="FIBREOPS_FOUNDRY_EVALS")
+
+    # Port the containerised hosted agent (ResponsesHostServer) listens on. The
+    # Foundry Agent Service / Container platform may override via the reserved
+    # PORT env var; this is the local-dev default. (Foundry hosts on 8088.)
+    hosted_agent_port: int = Field(default=8088, alias="FIBREOPS_HOSTED_PORT")
+    # Hosted-agent deployment (V1Preview) — used by `demo deploy-hosted`.
+    hosted_agent_name: str = Field(default="fibreops-outage-response", alias="FIBREOPS_HOSTED_AGENT_NAME")
+    # Full ACR image reference (e.g. myacr.azurecr.io/fibreops-agent:v1) to deploy.
+    hosted_agent_image: Optional[str] = Field(default=None, alias="FIBREOPS_HOSTED_IMAGE")
+    hosted_agent_cpu: str = Field(default="1", alias="FIBREOPS_HOSTED_CPU")
+    hosted_agent_memory: str = Field(default="2Gi", alias="FIBREOPS_HOSTED_MEMORY")
 
     # Microsoft 365 Copilot publishing — base URL that the declarative agent's actions
     # call back into (the FastAPI app, exposed publicly). Used by `publish-m365`.
@@ -114,6 +158,10 @@ class Settings(BaseSettings):
     @property
     def work_iq_enabled(self) -> bool:
         return bool(self.foundry_work_iq_endpoint)
+
+    @property
+    def foundry_memory_enabled(self) -> bool:
+        return bool(self.foundry_memory_store_name)
 
 
 @lru_cache

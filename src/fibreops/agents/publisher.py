@@ -2,10 +2,9 @@
 
 The Foundry hosted-agent flow has two phases:
 
-  1. **Publish** (one-time per change): build a local ``Agent`` bound to a
-     ``FoundryChatClient`` and call :func:`to_prompt_agent` to lift its
-     instructions, tools and generation parameters into a
-     ``PromptAgentDefinition``. Then publish via
+  1. **Publish** (one-time per change): build a
+     :class:`~azure.ai.projects.models.PromptAgentDefinition` (model +
+     instructions) and publish via
      ``AIProjectClient.agents.create_version(agent_name=..., definition=...)``.
      This persists the agent in Microsoft Foundry as a versioned, hosted
      Prompt Agent.
@@ -98,27 +97,28 @@ ROLE_INSTRUCTIONS: dict[str, str] = {
 }
 
 
-def _build_definition_agent(role: str):
-    """Construct an ``Agent`` purely for converting to a ``PromptAgentDefinition``."""
-    from agent_framework import Agent
-    from agent_framework_foundry import FoundryChatClient
-    from azure.identity import DefaultAzureCredential
+def _build_definition(role: str):
+    """Build the :class:`PromptAgentDefinition` published to Foundry for ``role``.
+
+    The hosted Prompt Agent stores the model deployment + system instructions.
+    The runtime (:class:`agent_framework_foundry.FoundryAgent`) supplies the
+    typed Python tool implementations on every call, so the published
+    definition itself stays minimal — exactly the architecture-diagram path.
+    """
+    from azure.ai.projects.models import PromptAgentDefinition
 
     settings = get_settings()
     if not settings.azure_ai_project_endpoint:
         raise RuntimeError(
             "AZURE_AI_PROJECT_ENDPOINT must be set before publishing hosted agents"
         )
-    client = FoundryChatClient(
-        project_endpoint=settings.azure_ai_project_endpoint,
+    if not settings.azure_ai_model_deployment:
+        raise RuntimeError(
+            "AZURE_AI_MODEL_DEPLOYMENT must be set before publishing hosted agents"
+        )
+    return PromptAgentDefinition(
         model=settings.azure_ai_model_deployment,
-        credential=DefaultAzureCredential(),
-    )
-    return Agent(
-        client=client,
         instructions=ROLE_INSTRUCTIONS[role],
-        name=AGENT_NAMES[role],
-        tools=ROLE_TOOLS[role],
     )
 
 
@@ -159,14 +159,11 @@ def publish_all() -> dict[str, dict[str, str]]:
     Returns the registry mapping ``{role: {agent_name, version}}`` and persists
     it to ``state/foundry_agents.json``.
     """
-    from agent_framework_foundry import to_prompt_agent
-
     registry = load_registry()
     pc = _project_client()
     try:
         for role, agent_name in AGENT_NAMES.items():
-            local_agent = _build_definition_agent(role)
-            definition = to_prompt_agent(local_agent)
+            definition = _build_definition(role)
             details = pc.agents.create_version(
                 agent_name=agent_name,
                 definition=definition,

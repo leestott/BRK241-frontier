@@ -231,6 +231,67 @@ def cleanup_hosted_agents(
         console.print("[yellow]Nothing to delete.[/yellow]")
 
 
+@app.command("serve-hosted")
+def serve_hosted(
+    port: int = typer.Option(None, "--port", "-p", help="Override the listen port"),
+) -> None:
+    """Run the hosted-agent container entrypoint locally (serves /responses on 8088)."""
+    init_observability()
+    from .agents.hosted_app import build_host_server
+
+    settings = get_settings()
+    listen = port or settings.hosted_agent_port
+    console.rule("[bold blue]FibreOps hosted agent (local)")
+    console.print(
+        f"Serving OpenAI /responses + /readiness on [cyan]http://0.0.0.0:{listen}[/cyan]\n"
+        "POST /responses with {\"input\": \"...\", \"stream\": false}."
+    )
+    server = build_host_server()
+    server.run(host="0.0.0.0", port=listen)
+
+
+@app.command("deploy-hosted")
+def deploy_hosted(
+    image: str = typer.Option(None, "--image", "-i", help="ACR image:tag (else FIBREOPS_HOSTED_IMAGE)"),
+    no_wait: bool = typer.Option(False, "--no-wait", help="Return immediately without polling status"),
+) -> None:
+    """Register the containerised hosted agent in Foundry Agent Service (V1Preview)."""
+    init_observability()
+    settings = get_settings()
+    if not settings.foundry_enabled:
+        console.print("[red]AZURE_AI_PROJECT_ENDPOINT is not set — cannot deploy.[/red]")
+        raise typer.Exit(code=1)
+    from .agents.deploy import deploy_hosted_agent
+
+    console.rule("[bold blue]Deploying FibreOps hosted agent")
+    console.print(f"Project endpoint: [cyan]{settings.azure_ai_project_endpoint}[/cyan]")
+    console.print(f"Agent name:       [cyan]{settings.hosted_agent_name}[/cyan]")
+    console.print(
+        f"Sandbox size:     [cyan]{settings.hosted_agent_cpu} vCPU / {settings.hosted_agent_memory}[/cyan]\n"
+    )
+    try:
+        result = deploy_hosted_agent(image=image, wait=not no_wait)
+    except Exception as exc:
+        console.print(f"[red]Deploy failed: {exc}[/red]")
+        raise typer.Exit(code=2) from exc
+
+    status = result.get("status", "unknown")
+    colour = "green" if status == "active" else "yellow" if status != "failed" else "red"
+    t = Table(show_header=False, box=None)
+    t.add_row("Agent", result["agent_name"])
+    t.add_row("Version", str(result.get("version")))
+    t.add_row("Image", result["image"])
+    t.add_row("Status", f"[{colour}]{status}[/{colour}]")
+    if result.get("error"):
+        t.add_row("Error", str(result["error"]))
+    console.print(Panel(t, title="Hosted agent deployment", border_style=colour))
+    if status == "active":
+        console.print(
+            "\n[green]Active.[/green] Invoke via "
+            "`project.get_openai_client(agent_name=...).responses.create(input=...)`."
+        )
+
+
 @app.command("backend")
 def show_backend() -> None:
     """Print the resolved agent backend for the current configuration."""

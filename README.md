@@ -97,7 +97,15 @@ sees everything live in the NOC Console ②.
   to `state/traces.jsonl`. Set `APPLICATIONINSIGHTS_CONNECTION_STRING` to
   ship to Application Insights.
 - 🔁 **Optimiser** — rubric-based evaluation of every run + actionable
-  improvement suggestions. Drop-in target for `FoundryEvals` in production.
+  improvement suggestions. Folds in Foundry cloud Evaluators
+  (`evaluate_traces`) when `FIBREOPS_FOUNDRY_EVALS=1`, else local rubric only.
+- 📦 **Containerised hosted agent** — the whole analyse → coordinate →
+  dispatch flow packaged as a single **hosted agent in Foundry Agent Service**
+  (V1Preview). `src/fibreops/agents/hosted_app.py` serves the OpenAI
+  `/responses` contract on port 8088; `agent.yaml` +
+  `src/fibreops/agents/Dockerfile.hosted` declare the image, sandbox size, and
+  protocol; `python -m fibreops.demo deploy-hosted` registers it. See
+  [Deploy the containerised hosted agent](#deploy-the-containerised-hosted-agent).
 
 ![Architecture](./docs/images/architecture.png)  
 
@@ -148,6 +156,8 @@ az login        # for Foundry + Event Hub via DefaultAzureCredential
 | `python -m fibreops.demo run --backend local`    | Force the deterministic local backend (offline-safe)               |
 | `python -m fibreops.demo publish`                | Create the three hosted Prompt Agents in Foundry                   |
 | `python -m fibreops.demo cleanup`                | Delete the hosted Prompt Agents                                    |
+| `python -m fibreops.demo serve-hosted`           | Run the containerised hosted-agent entrypoint locally (`/responses` on 8088) |
+| `python -m fibreops.demo deploy-hosted`          | Register the containerised hosted agent in Foundry Agent Service   |
 | `python -m fibreops.demo backend`                | Show which backend the current config will resolve to              |
 | `python -m fibreops.demo card`                   | Render the latest Teams Adaptive Card payload from the outbox      |
 | `python -m fibreops.demo chat "status"`          | Talk to FibreOps via the **GitHub Copilot SDK adapter** (slide 4)  |
@@ -397,6 +407,10 @@ src/fibreops/
   agents/          # IncidentAnalysis, NetOpsCoordinator, FieldDispatch
     factory.py        # builds hosted / foundry / local backends
     publisher.py      # create/cleanup hosted Prompt Agents in Foundry
+    hosted_app.py     # containerised hosted-agent entrypoint (ResponsesHostServer)
+    deploy.py         # register the hosted agent (HostedAgentDefinition + create_version)
+    foundry_services.py # FoundryMemoryProvider + Toolbox tool wiring
+    Dockerfile.hosted # linux/amd64 image for the hosted agent (port 8088)
     instructions.py   # versioned system prompts
   tools/           # knowledge (+ Foundry Web IQ / Work IQ), teams, ticketing, dispatch, memory, voice
   telemetry/       # mock generator + Event Hub producer/consumer
@@ -411,7 +425,9 @@ src/fibreops/
   sdk/             # GitHub Copilot SDK adapter (FibreOpsCopilotClient, slide 4)
   dist/            # Microsoft 365 Copilot declarative agent + action package builder (slide 13)
   agents/routines.py  # declarative Foundry Routine for NetOps coordinator
+agent.yaml         # Foundry hosted-agent manifest (kind: hosted, V1Preview)
 infra/             # Bicep for Event Hubs / Key Vault / Log Analytics / Application Insights
+scripts/           # grant-mi-roles.ps1, deploy-hosted-agent.ps1, diagram generators
 tests/             # unit + e2e smoke tests
 docs/
   DEMO.md          # rehearsal-grade 8-minute stage script
@@ -478,6 +494,12 @@ The script grants the App Service's system-assigned managed identity:
 | `Azure AI Developer`          | Foundry account      | Invoke hosted Prompt Agents + manage threads |
 | `Cognitive Services OpenAI User` | Foundry account   | Call the chat-completions deployment from the agent runtime |
 
+When `-FoundryAccountName` is supplied, the script **also** grants the Foundry
+project's managed identity `AcrPull` on the registry so a **containerised
+hosted agent** can be pulled from ACR (see below). Deploying a hosted agent
+additionally requires the deploying user to hold *Azure AI Project Manager* at
+project scope.
+
 Wait 2–5 minutes for RBAC to propagate, then harden the App Service to
 pull via managed identity and disable ACR admin:
 
@@ -509,6 +531,68 @@ az deployment group create `
 This provisions infra only — you still need to build + push the container
 image to the created ACR and configure the App Service to point at it.
 Most users should prefer `azd up`.
+
+### Deploy the containerised hosted agent
+
+The BRK241 hero path packages the full analyse → coordinate → dispatch flow as
+a single **hosted agent in Foundry Agent Service** (V1Preview) — a container
+that serves the OpenAI `/responses` contract, deployed straight into your
+Foundry project. The runtime artefacts are:
+
+| Artefact | Purpose |
+|----------|---------|
+| `src/fibreops/agents/hosted_app.py` | Entrypoint — wraps the agent in `ResponsesHostServer` (serves `/responses` + `/readiness` on 8088) |
+| `src/fibreops/agents/Dockerfile.hosted` | `linux/amd64` image that runs the entrypoint |
+| `agent.yaml` | Hosted-agent manifest: `kind: hosted`, image, `cpu`/`memory`, `protocol_versions`, `environment_variables` |
+| `src/fibreops/agents/deploy.py` | Builds a `HostedAgentDefinition` and calls `agents.create_version`, polling until `active` |
+
+One script builds the image in ACR (no local Docker needed), pushes it, and
+registers the version:
+
+```powershell
+# Grant the Foundry project MI AcrPull first (one-time, needs an Owner/UAA):
+pwsh scripts/grant-mi-roles.ps1 `
+  -ResourceGroup        rg-fibreops-demo `
+  -FoundryAccountName   <your-foundry-account> `
+  -FoundryResourceGroup <rg-that-holds-foundry>
+
+# Build + push + deploy the hosted agent:
+pwsh scripts/deploy-hosted-agent.ps1 `
+  -RegistryName  <your-acr-name> `
+  -ResourceGroup rg-fibreops-demo
+```
+
+Prefer to drive it by hand? Build/push the image yourself, then:
+
+```powershell
+$env:FIBREOPS_HOSTED_IMAGE = "<acr>.azurecr.io/fibreops-outage-response:v1"
+.\.venv\Scripts\python.exe -m fibreops.demo deploy-hosted
+```
+
+Validate the container locally before deploying (boots offline — the model is
+only called on the first request):
+
+```powershell
+.\.venv\Scripts\python.exe -m fibreops.demo serve-hosted   # http://localhost:8088/responses
+```
+
+> **Permissions** — deploying a hosted agent needs *Azure AI Project Manager*
+> at project scope; the Foundry project MI needs *Container Registry Repository
+> Reader* (`AcrPull`) on the ACR. The platform injects
+> `FOUNDRY_PROJECT_ENDPOINT`, `MODEL_DEPLOYMENT_NAME` is supplied via
+> `agent.yaml`'s `environment_variables` — do **not** hard-code `FOUNDRY_*`
+> values yourself.
+
+#### Optional Foundry services on the hosted agent
+
+| Env var | Purpose |
+|---------|---------|
+| `FIBREOPS_HOSTED_AGENT_NAME` | Hosted-agent name (default `fibreops-outage-response`) |
+| `FIBREOPS_HOSTED_IMAGE` | Full ACR image reference to deploy |
+| `FIBREOPS_HOSTED_CPU` / `FIBREOPS_HOSTED_MEMORY` | Sandbox size (`0.5`/`1Gi`, `1`/`2Gi`, `2`/`4Gi`) |
+| `FOUNDRY_MEMORY_STORE_NAME` | Attach `FoundryMemoryProvider` procedural memory (else local SQLite) |
+| `FIBREOPS_FOUNDRY_TOOLBOX` | `1` lights up Foundry Toolbox tools (e.g. `web_search`) on the agents |
+| `FIBREOPS_FOUNDRY_EVALS` | `1` runs Foundry cloud Evaluators in the optimiser alongside the rubric |
 
 ## See also
 - `docs/DEMO.md` — rehearsal-grade 8-minute stage script with timings, speaker notes, fail-safes, and a kill-switch.

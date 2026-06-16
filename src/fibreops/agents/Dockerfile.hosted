@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1.7
+# FibreOps Outage Response Agent System — Foundry **hosted agent** image.
+#
+# Build for the hosting platform (x86_64 is REQUIRED):
+#   docker build --platform linux/amd64 \
+#     -f src/fibreops/agents/Dockerfile.hosted \
+#     -t <registry>.azurecr.io/fibreops-outage-response:v1 .
+#
+# The container serves the OpenAI-compatible /responses contract (and the
+# platform health probe /readiness) on port 8088 via
+# agent_framework_foundry_hosting.ResponsesHostServer. Foundry Agent Service
+# pulls this image, provisions a per-session sandbox, injects the FOUNDRY_*
+# environment variables + Application Insights connection string, and routes
+# requests to it. See docs/DEMO.md and agent.yaml.
+FROM --platform=linux/amd64 python:3.11-slim AS builder
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /build
+
+COPY requirements.txt pyproject.toml ./
+COPY src ./src
+
+RUN pip install --upgrade pip \
+ && pip install -r requirements.txt \
+ && pip install --no-deps .
+
+# --- Runtime image ---
+FROM --platform=linux/amd64 python:3.11-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    FIBREOPS_HOSTED_PORT=8088
+
+# Non-root user — the hosting sandbox runs rootless.
+RUN groupadd --system fibreops \
+ && useradd  --system --create-home --gid fibreops fibreops
+
+WORKDIR /app
+
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Writable state dir for offline fallbacks (outboxes, local memory). In the
+# hosted sandbox, $HOME is the persistent per-session store.
+RUN mkdir -p /app/state \
+ && chown -R fibreops:fibreops /app
+
+USER fibreops
+
+EXPOSE 8088
+
+# ResponsesHostServer serves /responses + /readiness on 8088.
+CMD ["python", "-m", "fibreops.agents.hosted_app"]

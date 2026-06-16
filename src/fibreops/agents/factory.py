@@ -42,6 +42,7 @@ from ..tools import (
     web_iq_search,
     work_iq_search,
 )
+from .foundry_services import build_memory_providers, build_toolbox_tools
 from .instructions import (
     FIELD_DISPATCH_INSTRUCTIONS_V1,
     INCIDENT_ANALYSIS_INSTRUCTIONS_V1,
@@ -278,7 +279,13 @@ def _resolve_backend(prefer: str | None) -> str:
     return AgentBackend.LOCAL
 
 
-def _make_foundry_agent(*, name: str, instructions: str, tools: list[Callable[..., Any]]):
+def _make_foundry_agent(
+    *,
+    name: str,
+    instructions: str,
+    tools: list[Any],
+    context_providers: list[Any] | None = None,
+):
     from agent_framework import Agent
     from agent_framework_foundry import FoundryChatClient
     from azure.identity import DefaultAzureCredential
@@ -292,10 +299,22 @@ def _make_foundry_agent(*, name: str, instructions: str, tools: list[Callable[..
         model=settings.azure_ai_model_deployment,
         credential=DefaultAzureCredential(),
     )
-    return Agent(client=client, instructions=instructions, name=name, tools=tools)
+    return Agent(
+        client=client,
+        instructions=instructions,
+        name=name,
+        tools=tools,
+        context_providers=context_providers or None,
+    )
 
 
-def _make_hosted_agent(*, role: str, display_name: str, tools: list[Callable[..., Any]]):
+def _make_hosted_agent(
+    *,
+    role: str,
+    display_name: str,
+    tools: list[Any],
+    context_providers: list[Any] | None = None,
+):
     """Connect to a Foundry-hosted Prompt Agent published by the publisher."""
     from agent_framework_foundry import FoundryAgent
     from azure.identity import DefaultAzureCredential
@@ -321,6 +340,7 @@ def _make_hosted_agent(*, role: str, display_name: str, tools: list[Callable[...
         credential=DefaultAzureCredential(),
         tools=tools,
         name=display_name,
+        context_providers=context_providers or None,
     )
 
 
@@ -332,13 +352,29 @@ def _build(
     prefer: str | None,
 ):
     backend = _resolve_backend(prefer)
-    tools_list = list(tool_fns.values())
+    tools_list: list[Any] = list(tool_fns.values())
+    if backend in (AgentBackend.HOSTED, AgentBackend.FOUNDRY):
+        # Hosted Foundry toolbox tools (web_search, code_interpreter, …) are
+        # merged with the in-process Python tools when FIBREOPS_FOUNDRY_TOOLBOX
+        # is enabled; otherwise this is a no-op.
+        tools_list = tools_list + build_toolbox_tools(role)
+        context_providers = build_memory_providers()
     if backend == AgentBackend.HOSTED:
         logger.info(f"creating hosted {display_name}")
-        return _make_hosted_agent(role=role, display_name=display_name, tools=tools_list)
+        return _make_hosted_agent(
+            role=role,
+            display_name=display_name,
+            tools=tools_list,
+            context_providers=context_providers,
+        )
     if backend == AgentBackend.FOUNDRY:
         logger.info(f"creating Foundry-backed {display_name}")
-        return _make_foundry_agent(name=display_name, instructions=instructions, tools=tools_list)
+        return _make_foundry_agent(
+            name=display_name,
+            instructions=instructions,
+            tools=tools_list,
+            context_providers=context_providers,
+        )
     logger.info(f"creating LocalAgent {display_name}")
     return LocalAgent(display_name, role, tool_fns)
 
