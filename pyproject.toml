@@ -24,3 +24,7 @@ fibreops = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = [
+    # Third-party: Starlette's TestClient (via FastAPI) warns about httpx. Not our code.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:Warning",
+]
