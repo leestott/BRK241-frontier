@@ -1,7 +1,11 @@
 {% if not utterances %}
   <p class="text-slate-500 text-sm">No voice updates yet. Click <span class="font-mono">🔊 Speak status</span> in the header to push the latest incident through Voice Live.</p>
 {% else %}
-  <ul class="space-y-2">
+  <ul class="space-y-2"
+      data-latest-text="{{ utterances[0].text|e }}"
+      data-latest-voice="{{ utterances[0].voice|e }}"
+      data-latest-severity="{{ utterances[0].severity|e }}"
+      data-latest-incident="{{ utterances[0].incident_id|e }}">
     {% for u in utterances %}
       <li class="rounded border border-slate-700 bg-slate-900/60 p-2">
         <div class="flex items-center justify-between text-xs">

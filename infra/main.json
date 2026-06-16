@@ -53,7 +53,7 @@
     },
     "azureAiModelDeployment": {
       "type": "string",
-      "defaultValue": "gpt-4o-mini",
+      "defaultValue": "gpt-4.1-mini",
       "metadata": {
         "description": "Foundry model deployment name."
       }

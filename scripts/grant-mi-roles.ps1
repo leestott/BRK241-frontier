@@ -51,12 +51,12 @@ if (-not $FoundryAccountName) {
         Write-Host "Derived FoundryAccountName from AZURE_AI_PROJECT_ENDPOINT: $FoundryAccountName" -ForegroundColor DarkGray
     }
     else {
-        throw "FoundryAccountName not supplied and could not be derived from AZURE_AI_PROJECT_ENDPOINT. Pass -FoundryAccountName <name>."
+        Write-Host "FoundryAccountName not supplied; Foundry role grants will be skipped." -ForegroundColor Yellow
     }
 }
 
-if (-not $FoundryResourceGroup) {
-    throw "FoundryResourceGroup not supplied. Pass -FoundryResourceGroup <rg-name> (the RG containing the Foundry account)."
+if ($FoundryAccountName -and -not $FoundryResourceGroup) {
+    throw "FoundryResourceGroup is required when FoundryAccountName is set. Pass -FoundryResourceGroup <rg-name>."
 }
 
 if (-not $AppServiceName) {
@@ -77,15 +77,21 @@ Write-Host "  principalId = $principalId" -ForegroundColor Green
 $ehNamespace = az resource list -g $ResourceGroup --resource-type Microsoft.EventHub/namespaces --query "[0].id" -o tsv
 $keyVault    = az resource list -g $ResourceGroup --resource-type Microsoft.KeyVault/vaults     --query "[0].id" -o tsv
 $registry    = az resource list -g $ResourceGroup --resource-type Microsoft.ContainerRegistry/registries --query "[0].id" -o tsv
-$foundry     = az cognitiveservices account show -g $FoundryResourceGroup -n $FoundryAccountName --query id -o tsv
+$voiceLive   = az resource list -g $ResourceGroup --resource-type Microsoft.CognitiveServices/accounts --query "[?kind=='AIServices'] | [0].id" -o tsv
+$foundry     = if ($FoundryAccountName) { az cognitiveservices account show -g $FoundryResourceGroup -n $FoundryAccountName --query id -o tsv } else { "" }
 
 $grants = @(
     @{ Role = "Azure Event Hubs Data Owner";    Scope = $ehNamespace; Desc = "publish/consume fibre-signals" },
-    @{ Role = "Key Vault Secrets User";          Scope = $keyVault;    Desc = "read optional secrets" },
-    @{ Role = "AcrPull";                          Scope = $registry;    Desc = "pull image (tighten away from admin creds)" },
-    @{ Role = "Azure AI Developer";               Scope = $foundry;     Desc = "invoke hosted Prompt Agents in Foundry Agent Service" },
-    @{ Role = "Cognitive Services OpenAI User";   Scope = $foundry;     Desc = "call the underlying model deployment" }
+    @{ Role = "Key Vault Secrets User";          Scope = $keyVault;    Desc = "read optional secrets (incl. Voice Live key)" },
+    @{ Role = "AcrPull";                          Scope = $registry;    Desc = "pull image (tighten away from admin creds)" }
 )
+if ($voiceLive) {
+    $grants += @{ Role = "Cognitive Services User"; Scope = $voiceLive; Desc = "use Voice Live realtime Speech endpoint" }
+}
+if ($foundry) {
+    $grants += @{ Role = "Azure AI Developer";             Scope = $foundry; Desc = "invoke hosted Prompt Agents in Foundry Agent Service" }
+    $grants += @{ Role = "Cognitive Services OpenAI User"; Scope = $foundry; Desc = "call the underlying model deployment" }
+}
 
 foreach ($g in $grants) {
     Write-Host "Granting [$($g.Role)] -> $($g.Desc)" -ForegroundColor Cyan

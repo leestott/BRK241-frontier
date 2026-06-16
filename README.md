@@ -51,6 +51,25 @@ the runtime supplies to the hosted definition.
 - 🔁 **Optimiser** — rubric-based evaluation of every run + actionable
   improvement suggestions. Drop-in target for `FoundryEvals` in production.
 
+![Architecture](./docs/images/architecture.png)  
+
+## NOC console preview
+
+The deployed application is a tactical Network Operations Center wallboard
+with a live KPI strip, node topology grid, severity LEDs, alarm pulses,
+panel codes (`[01·RUNS]`, `[02·DETAIL]`, …), live UTC clock, and a
+light/dark theme toggle. All numbers are aggregated from real run state —
+nothing is fabricated.
+
+| Dark mode (default NOC look)                              | Light mode                                                   |
+| --------------------------------------------------------- | ------------------------------------------------------------ |
+| ![NOC dark](./docs/screenshots/noc-dark-prod.png)         | ![NOC light](./docs/screenshots/noc-light-prod.png)          |
+
+Run detail with a real Foundry agent decision (Incident Analysis →
+NetOps Coordinator handing off to dispatch):
+
+![NOC run detail](./docs/screenshots/noc-run-detail-prod.png)
+
 ## Quick start
 
 ```powershell
@@ -124,11 +143,15 @@ Layout:
 
 | Pane                | What it shows                                               |
 |---------------------|-------------------------------------------------------------|
-| **Header**          | Backend (`local`/`foundry`/`hosted`), auto-dispatch + Teams flags, 5 action buttons |
-| **Active incidents**| Live list of agent runs (polled every 3 s) with severity dot, node id, engineer, ETA |
-| **Incident detail** | Click a row → full agent decision timeline (Incident Analysis → NetOps → Field Dispatch) |
-| **Optimiser**       | Average rubric score, per-criterion bars, top suggestions   |
-| **Teams card preview** | Flattened Adaptive Card preview (polled every 5 s)       |
+| **Header**          | `OPS · SECURE` badge, `MODE · {backend}` (`local`/`foundry`/`hosted`), live UTC clock, theme toggle, command bar |
+| **`[KPI]` wallboard** | 8 tactical tiles (incidents 24h, critical with alarm pulse, customers impacted, engineers dispatched, Foundry IQ lookups, Teams cards posted, optimiser avg score, system health) |
+| **`[01·RUNS]`**     | Live list of agent runs (polled every 3 s) with severity LED, node id, engineer, ETA, AWAITING-TELEMETRY empty state |
+| **`[02·DETAIL]`**   | Click a row → full agent decision timeline (Incident Analysis → NetOps → Field Dispatch) |
+| **`[03·TOPO]`**     | Node grid coloured by severity, dispatched outline, click-to-jump-to-detail, severity legend |
+| **`[04·OPTIMISER]`** | Average rubric score, per-criterion bars, top suggestions   |
+| **`[05·TEAMS]`**    | Flattened Adaptive Card preview (polled every 5 s)          |
+| **`[06·VOICE]`**    | Voice Live outbox (utterance, voice, severity)              |
+| **`[07·IQ]`**       | Foundry IQ + Web IQ + Work IQ grounding lookups (real Bing/Fabric calls in `foundry`/`hosted` mode, fixtures in `local` mode) |
 
 Action buttons:
 
@@ -362,7 +385,10 @@ Containers** plus a private **Azure Container Registry**, **Event Hub**,
 
 ```powershell
 # 0. Prereqs: Azure CLI, azd >= 1.10, Docker (only needed for local image build),
-#    a Foundry project with a deployed model (e.g. gpt-4o-mini)
+#    a Foundry project with a deployed model. The default in this repo is
+#    `gpt-4.1-mini` because that is what the demo Foundry account ships with;
+#    any chat-completions deployment (gpt-4o-mini, gpt-4o, gpt-4.1) works —
+#    just match AZURE_AI_MODEL_DEPLOYMENT to the deployment name in your account.
 
 azd auth login
 azd env new fibreops-demo
@@ -370,7 +396,7 @@ azd env new fibreops-demo
 # Supply the Foundry endpoint + model deployment name (azd will prompt or
 # read them from .env):
 azd env set AZURE_AI_PROJECT_ENDPOINT  "https://<account>.services.ai.azure.com/api/projects/<project>"
-azd env set AZURE_AI_MODEL_DEPLOYMENT  "gpt-4o-mini"
+azd env set AZURE_AI_MODEL_DEPLOYMENT  "gpt-4.1-mini"
 azd env set AZURE_LOCATION             "swedencentral"   # any AppService + ACR region
 
 azd up
@@ -401,11 +427,24 @@ The script grants the App Service's system-assigned managed identity:
 | `Azure Event Hubs Data Owner` | Event Hubs namespace | Publish + consume `fibre-signals`            |
 | `Key Vault Secrets User`      | Key Vault            | Read optional secrets (e.g. Teams webhook)   |
 | `AcrPull`                     | Container Registry   | Pull image with MI instead of admin creds    |
-| `Azure AI User`               | Foundry account      | Invoke hosted Prompt Agents                  |
+| `Azure AI Developer`          | Foundry account      | Invoke hosted Prompt Agents + manage threads |
+| `Cognitive Services OpenAI User` | Foundry account   | Call the chat-completions deployment from the agent runtime |
 
-Wait 2–5 minutes for RBAC to propagate, then `az webapp restart` to pick
-up the new permissions. Optionally tighten ACR pull to managed identity
-and disable ACR admin (the script prints the two follow-up commands).
+Wait 2–5 minutes for RBAC to propagate, then harden the App Service to
+pull via managed identity and disable ACR admin:
+
+```powershell
+az webapp config set -g rg-fibreops-demo -n <webapp-name> `
+  --generic-configurations '{"acrUseManagedIdentityCreds": true}'
+az acr update -n <acr-name> --admin-enabled false
+az webapp restart -g rg-fibreops-demo -n <webapp-name>
+```
+
+> **ABAC tip** — if your Foundry tenant scopes `Owner` with an ABAC condition
+> (e.g. only on resources you create), the script will fail to grant the two
+> Foundry roles. Have a tenant admin run the Foundry-scope half of the script
+> against the Foundry account instead. The webapp's `MODE · foundry` badge
+> turns green only after both Foundry roles have propagated.
 
 ### Infra-only deploy (no AZD)
 
@@ -416,7 +455,7 @@ az deployment group create `
   --template-file infra/main.bicep `
   --parameters namePrefix=fbreops `
                azureAiProjectEndpoint="https://<account>.services.ai.azure.com/api/projects/<project>" `
-               azureAiModelDeployment="gpt-4o-mini"
+               azureAiModelDeployment="gpt-4.1-mini"
 ```
 
 This provisions infra only — you still need to build + push the container

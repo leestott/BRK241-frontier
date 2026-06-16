@@ -25,11 +25,37 @@ param containerImageName string = 'mcr.microsoft.com/k8se/quickstart:latest'
 param azureAiProjectEndpoint string = ''
 
 @description('Foundry model deployment name.')
-param azureAiModelDeployment string = 'gpt-4o-mini'
+param azureAiModelDeployment string = 'gpt-4.1-mini'
 
 @description('Agent backend resolution: auto | hosted | foundry | local')
 @allowed([ 'auto', 'hosted', 'foundry', 'local' ])
 param fibreopsAgentBackend string = 'hosted'
+
+@description('Azure Voice Live realtime endpoint. Either an https://<region>.api.cognitive.microsoft.com host or a fully-formed wss:// URL. Empty = browser falls back to text-only outbox.')
+param azureVoiceLiveEndpoint string = ''
+
+@description('Azure Voice Live API key (Speech / AI Services resource key). Required when azureVoiceLiveEndpoint is set.')
+@secure()
+param azureVoiceLiveApiKey string = ''
+
+@description('Default voice for one-shot TTS, e.g. en-GB-RyanNeural. Empty = library default.')
+param azureVoiceLiveVoice string = ''
+
+@description('Published Foundry agent id used by the duplex "Talk to agent" mic session. Empty disables the mic button.')
+param azureVoiceLiveAgentId string = ''
+
+@description('Voice Live realtime API version query parameter.')
+param azureVoiceLiveApiVersion string = '2025-05-01-preview'
+
+@description('Provision a Speech / AI Services account in this resource group for Voice Live. Set false to bring your own.')
+param provisionVoiceLive bool = true
+
+@description('Override region for the Speech / AI Services account. Empty = same as deployment location. Voice Live preview availability varies by region (e.g. eastus2, swedencentral, westus2).')
+param voiceLiveLocation string = ''
+
+@description('SKU for the Speech / AI Services account.')
+@allowed([ 'S0', 'F0' ])
+param voiceLiveSku string = 'S0'
 
 @description('Tag value AZD uses to map this resource to the named service in azure.yaml.')
 param serviceName string = 'fibreops-noc'
@@ -43,6 +69,8 @@ var appiName = '${namePrefix}-appi-${suffix}'
 var acrName = toLower('${namePrefix}acr${substring(suffix, 0, 8)}')
 var planName = '${namePrefix}-plan-${suffix}'
 var webName = toLower('${namePrefix}-noc-${substring(suffix, 0, 6)}')
+var voiceLiveAccountName = toLower('${namePrefix}-aisvc-${substring(suffix, 0, 6)}')
+var voiceLiveRegion = empty(voiceLiveLocation) ? location : voiceLiveLocation
 
 resource law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: lawName
@@ -82,6 +110,30 @@ resource eh 'Microsoft.EventHub/namespaces/eventhubs@2024-01-01' = {
   }
 }
 
+// Azure AI Services (multi-service) account — provides Voice Live realtime
+// Speech endpoint. Conditional so operators can BYO via azureVoiceLiveEndpoint
+// (e.g. an existing AIFoundry / Speech account in another resource group).
+resource voiceLiveAccount 'Microsoft.CognitiveServices/accounts@2024-10-01' = if (provisionVoiceLive) {
+  name: voiceLiveAccountName
+  location: voiceLiveRegion
+  kind: 'AIServices'
+  sku: { name: voiceLiveSku }
+  identity: { type: 'SystemAssigned' }
+  properties: {
+    customSubDomainName: voiceLiveAccountName
+    publicNetworkAccess: 'Enabled'
+    disableLocalAuth: false
+  }
+}
+
+// Resolved endpoint + key. Param override wins over the provisioned account.
+var resolvedVoiceLiveEndpoint = !empty(azureVoiceLiveEndpoint)
+  ? azureVoiceLiveEndpoint
+  : (provisionVoiceLive ? voiceLiveAccount.properties.endpoint : '')
+var resolvedVoiceLiveKey = !empty(azureVoiceLiveApiKey)
+  ? azureVoiceLiveApiKey
+  : (provisionVoiceLive ? voiceLiveAccount.listKeys().key1 : '')
+
 resource kv 'Microsoft.KeyVault/vaults@2024-11-01' = {
   name: kvName
   location: location
@@ -92,6 +144,22 @@ resource kv 'Microsoft.KeyVault/vaults@2024-11-01' = {
     enableSoftDelete: true
     softDeleteRetentionInDays: 7
     publicNetworkAccess: 'Enabled'
+  }
+}
+
+// Voice Live API key is stored as a KV secret (rather than a plain app setting)
+// so it can be rotated independently and is referenced from App Service via
+// a Key Vault reference. The web MI gets `Key Vault Secrets User` from the
+// post-deploy scripts/grant-mi-roles.ps1 script. The resource is conditional
+// so deployments that omit the key (text-only fallback path) still succeed.
+var voiceLiveSecretName = 'AZURE-VOICE-LIVE-API-KEY'
+var hasVoiceLiveKey = provisionVoiceLive || !empty(azureVoiceLiveApiKey)
+resource voiceLiveKeySecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = if (hasVoiceLiveKey) {
+  parent: kv
+  name: voiceLiveSecretName
+  properties: {
+    value: resolvedVoiceLiveKey
+    contentType: 'Azure Voice Live (Speech) resource key'
   }
 }
 
@@ -142,6 +210,7 @@ resource web 'Microsoft.Web/sites@2024-04-01' = {
       alwaysOn: true
       ftpsState: 'Disabled'
       http20Enabled: true
+      webSocketsEnabled: true
       minTlsVersion: '1.2'
       healthCheckPath: '/healthz'
       acrUseManagedIdentityCreds: false
@@ -165,6 +234,11 @@ resource web 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'FIBREOPS_UI_HOST', value: '0.0.0.0' }
         { name: 'FIBREOPS_UI_PORT', value: '8800' }
         { name: 'KEY_VAULT_NAME', value: kv.name }
+        { name: 'AZURE_VOICE_LIVE_ENDPOINT', value: resolvedVoiceLiveEndpoint }
+        { name: 'AZURE_VOICE_LIVE_API_KEY', value: hasVoiceLiveKey ? '@Microsoft.KeyVault(VaultName=${kv.name};SecretName=${voiceLiveSecretName})' : '' }
+        { name: 'AZURE_VOICE_LIVE_VOICE', value: azureVoiceLiveVoice }
+        { name: 'AZURE_VOICE_LIVE_AGENT_ID', value: azureVoiceLiveAgentId }
+        { name: 'AZURE_VOICE_LIVE_API_VERSION', value: azureVoiceLiveApiVersion }
       ]
     }
   }
@@ -179,6 +253,7 @@ resource web 'Microsoft.Web/sites@2024-04-01' = {
 //   Key Vault Secrets User  4633458b-17de-408a-b874-0445c86b69e6
 //   AcrPull                 7f951dda-4ed3-4680-a7ca-43fe172d538d
 //   Azure AI User           53ca6127-db72-4b80-b1b0-d745d6d5456d (on Foundry account)
+//   Cognitive Services User a97b65f3-24c7-4388-baec-2e87135dc908 (on Voice Live AI Services account)
 
 output AZURE_LOCATION string = location
 output AZURE_RESOURCE_GROUP string = resourceGroup().name
@@ -195,4 +270,7 @@ output EVENT_HUB_NAME string = eh.name
 output KEY_VAULT_NAME string = kv.name
 output APPLICATIONINSIGHTS_CONNECTION_STRING string = appi.properties.ConnectionString
 output AZURE_LOG_ANALYTICS_WORKSPACE_ID string = law.id
+output AZURE_VOICE_LIVE_ACCOUNT_NAME string = provisionVoiceLive ? voiceLiveAccount.name : ''
+output AZURE_VOICE_LIVE_ACCOUNT_ID string = provisionVoiceLive ? voiceLiveAccount.id : ''
+output AZURE_VOICE_LIVE_ENDPOINT string = resolvedVoiceLiveEndpoint
 

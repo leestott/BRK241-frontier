@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # (e.g. https://<account>.services.ai.azure.com/api/projects/<project>)
     azure_ai_project_endpoint: Optional[str] = Field(default=None, alias="AZURE_AI_PROJECT_ENDPOINT")
     azure_ai_project_connection_string: Optional[str] = Field(default=None, alias="AZURE_AI_PROJECT_CONNECTION_STRING")
-    azure_ai_model_deployment: str = Field(default="gpt-4o-mini", alias="AZURE_AI_MODEL_DEPLOYMENT")
+    azure_ai_model_deployment: str = Field(default="gpt-4.1-mini", alias="AZURE_AI_MODEL_DEPLOYMENT")
 
     # Event Hub
     event_hub_fqdn: Optional[str] = Field(default=None, alias="EVENT_HUB_FQDN")
@@ -26,12 +26,24 @@ class Settings(BaseSettings):
     teams_webhook_url: Optional[str] = Field(default=None, alias="TEAMS_WEBHOOK_URL")
 
     # Voice Live (Azure AI Voice Live integration with Foundry Agent Service).
-    # When set, voice utterances POST to this endpoint as JSON {voice, ssml,
-    # text, ...}. Otherwise utterances append to state/voice_outbox.jsonl so
-    # the demo always works offline.
+    # ``azure_voice_live_endpoint`` is the realtime base URL — either an
+    # ``https://<region>.api.cognitive.microsoft.com`` host or a fully-formed
+    # ``wss://...`` WebSocket URL. When set, the UI opens a Voice Live session
+    # via the server-side proxy at ``/ws/voice`` so the browser plays real TTS
+    # audio for "Speak status" and supports duplex mic via "Talk to agent".
+    # When unset, utterances append to ``state/voice_outbox.jsonl`` so the
+    # demo always works offline.
     azure_voice_live_endpoint: Optional[str] = Field(default=None, alias="AZURE_VOICE_LIVE_ENDPOINT")
     azure_voice_live_api_key: Optional[str] = Field(default=None, alias="AZURE_VOICE_LIVE_API_KEY")
     azure_voice_live_voice: Optional[str] = Field(default=None, alias="AZURE_VOICE_LIVE_VOICE")
+    # Foundry agent the duplex "Talk to agent" session is bound to. Optional
+    # for one-shot TTS; required for duplex mic conversation.
+    azure_voice_live_agent_id: Optional[str] = Field(default=None, alias="AZURE_VOICE_LIVE_AGENT_ID")
+    # Realtime API version string passed as a query parameter on the upstream
+    # WebSocket URL. Override if Microsoft ships a newer Voice Live preview.
+    azure_voice_live_api_version: str = Field(
+        default="2025-05-01-preview", alias="AZURE_VOICE_LIVE_API_VERSION"
+    )
 
     # Foundry IQ — knowledge grounding (BRK241 slide 4 / slide 9).
     # Two endpoints, both optional, both POST {query, limit} -> {results:[...]}.

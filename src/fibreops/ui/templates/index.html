@@ -23,6 +23,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <link rel="stylesheet" href="/static/style.css?v=3" />
+  <script src="/static/voice-live.js?v=1" defer></script>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22><text y=%2214%22 font-size=%2214%22>🛰️</text></svg>" />
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans noc-bg">
@@ -72,6 +73,14 @@
               hx-target="#voice-panel"
               hx-swap="innerHTML"
               hx-indicator="#busy">🔊 Speak status</button>
+      <button id="voice-mic-btn"
+              type="button"
+              class="btn-secondary"
+              title="Open a duplex Voice Live session bound to the Foundry agent"
+              onclick="window.voiceLive && window.voiceLive.toggleMic()">🎙️ Talk to agent</button>
+      <span id="voice-status"
+            class="text-[11px] font-mono px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300"
+            data-kind="info">Idle</span>
       <span id="sim-toggle" hx-get="/partials/sim" hx-trigger="load" hx-swap="innerHTML"></span>
       <button class="btn-secondary"
               hx-post="/actions/optimise"

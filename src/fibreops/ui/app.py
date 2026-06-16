@@ -334,6 +334,8 @@ def create_app() -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
+        from ..voice_live import session_descriptor
+
         settings = get_settings()
         return templates.TemplateResponse(
             request,
@@ -349,8 +351,24 @@ def create_app() -> FastAPI:
                 "web_iq_enabled": settings.web_iq_enabled,
                 "work_iq_enabled": settings.work_iq_enabled,
                 "sim_running": _sim.running,
+                "voice_session": session_descriptor(settings),
             },
         )
+
+    @app.get("/api/voice/session")
+    async def api_voice_session() -> JSONResponse:
+        """Return the Voice Live session descriptor for the browser client."""
+        from ..voice_live import session_descriptor
+
+        return JSONResponse(session_descriptor())
+
+    @app.websocket("/ws/voice")
+    async def ws_voice(websocket) -> None:  # type: ignore[no-untyped-def]
+        """Bridge the browser to the upstream Azure Voice Live realtime WS."""
+        from ..voice_live import proxy_session
+
+        await websocket.accept()
+        await proxy_session(websocket)
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
