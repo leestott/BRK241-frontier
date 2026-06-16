@@ -17,3 +17,24 @@ services:
     docker:
       path: src/fibreops/Dockerfile
       context: .
+
+# Optional: deploy the containerised hosted agent to Foundry Agent Service as
+# part of `azd up`. There is no native azd host type for a Foundry hosted-agent
+# version, so this hook runs the supported path (az acr build + the
+# azure-ai-projects SDK) via scripts/deploy-hosted-agent.ps1. It is OFF by
+# default — set `azd env set FIBREOPS_DEPLOY_HOSTED true` to enable it — and uses
+# continueOnError so a missing Foundry RBAC grant never fails the web-app deploy.
+hooks:
+  postdeploy:
+    shell: pwsh
+    continueOnError: true
+    interactive: true
+    run: |
+      if ($env:FIBREOPS_DEPLOY_HOSTED -eq 'true') {
+        Write-Host 'FIBREOPS_DEPLOY_HOSTED=true -> deploying hosted agent to Foundry Agent Service...' -ForegroundColor Cyan
+        ./scripts/deploy-hosted-agent.ps1 `
+          -RegistryName  $env:AZURE_CONTAINER_REGISTRY_NAME `
+          -ResourceGroup $env:AZURE_RESOURCE_GROUP
+      } else {
+        Write-Host 'Skipping hosted-agent deploy. Run `azd env set FIBREOPS_DEPLOY_HOSTED true` to deploy it during azd up, or run scripts/deploy-hosted-agent.ps1 manually.' -ForegroundColor DarkGray
+      }

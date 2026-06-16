@@ -459,7 +459,18 @@ def ui_command(
 
 
 # Known subcommands — anything else on argv[1] means the user wants `run` with flags.
-_SUBCOMMANDS = {"run", "publish", "cleanup", "card", "backend", "ui", "chat", "publish-m365"}
+_SUBCOMMANDS = {
+    "run",
+    "publish",
+    "cleanup",
+    "card",
+    "backend",
+    "ui",
+    "chat",
+    "publish-m365",
+    "serve-hosted",
+    "deploy-hosted",
+}
 
 
 def _rewrite_default_argv(argv: list[str]) -> list[str]:

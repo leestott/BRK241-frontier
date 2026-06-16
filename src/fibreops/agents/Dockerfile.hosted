@@ -12,7 +12,11 @@
 # pulls this image, provisions a per-session sandbox, injects the FOUNDRY_*
 # environment variables + Application Insights connection string, and routes
 # requests to it. See docs/DEMO.md and agent.yaml.
-FROM --platform=linux/amd64 python:3.11-slim AS builder
+#
+# NOTE: the target platform is set via `az acr build --platform linux/amd64`
+# (and `docker build --platform linux/amd64`), not an inline `--platform=` on
+# the FROM lines — ACR's dependency scanner cannot parse that flag.
+FROM python:3.11-slim AS builder
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -29,7 +33,7 @@ RUN pip install --upgrade pip \
  && pip install --no-deps .
 
 # --- Runtime image ---
-FROM --platform=linux/amd64 python:3.11-slim AS runtime
+FROM python:3.11-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

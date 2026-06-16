@@ -569,6 +569,17 @@ $env:FIBREOPS_HOSTED_IMAGE = "<acr>.azurecr.io/fibreops-outage-response:v1"
 .\.venv\Scripts\python.exe -m fibreops.demo deploy-hosted
 ```
 
+Want it to run as part of `azd up`? There is no native azd host type for a
+Foundry hosted-agent version, so `azure.yaml` wires a `postdeploy` hook that runs
+the same `scripts/deploy-hosted-agent.ps1` path. It is **off by default** (so a
+normal `azd up` only deploys the NOC console) and uses `continueOnError`, so a
+missing Foundry RBAC grant never fails the web-app deploy. Opt in with:
+
+```powershell
+azd env set FIBREOPS_DEPLOY_HOSTED true
+azd up   # provisions infra, deploys the NOC console, then registers the hosted agent
+```
+
 Validate the container locally before deploying (boots offline — the model is
 only called on the first request):
 

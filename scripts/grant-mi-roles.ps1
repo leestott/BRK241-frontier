@@ -121,9 +121,28 @@ foreach ($g in $grants) {
 if ($foundry -and $registry) {
     Write-Host ""
     Write-Host "Granting Foundry project MI AcrPull on the registry (hosted-agent image pulls)..." -ForegroundColor Cyan
-    $foundryPrincipalId = az cognitiveservices account show -g $FoundryResourceGroup -n $FoundryAccountName --query identity.principalId -o tsv
+    # IMPORTANT: the platform pulls the hosted-agent image using the Foundry
+    # *project's* managed identity -- which is a DIFFERENT principal from the
+    # account's identity. Granting AcrPull to the account MI does NOT fix the
+    # ImageError; the grant must target the project MI. Derive the project name
+    # from the /projects/<name> segment of AZURE_AI_PROJECT_ENDPOINT and read the
+    # project sub-resource's identity via ARM.
+    $foundryProjectName = ""
+    if ($env:AZURE_AI_PROJECT_ENDPOINT -match "/projects/([^/?]+)") {
+        $foundryProjectName = $matches[1]
+    }
+    $subId = az account show --query id -o tsv
+    if ($foundryProjectName) {
+        $projUrl = "https://management.azure.com/subscriptions/$subId/resourceGroups/$FoundryResourceGroup/providers/Microsoft.CognitiveServices/accounts/$FoundryAccountName/projects/$foundryProjectName?api-version=2025-06-01"
+        $foundryPrincipalId = az rest --method get --url $projUrl --query "identity.principalId" -o tsv 2>$null
+        Write-Host "  project '$foundryProjectName' MI principalId = $foundryPrincipalId" -ForegroundColor DarkGray
+    }
+    else {
+        Write-Host "  Could not derive project name from AZURE_AI_PROJECT_ENDPOINT; falling back to the account MI." -ForegroundColor Yellow
+        $foundryPrincipalId = az cognitiveservices account show -g $FoundryResourceGroup -n $FoundryAccountName --query identity.principalId -o tsv
+    }
     if (-not $foundryPrincipalId) {
-        Write-Host "  Foundry account has no system-assigned identity; enable it then re-run, or grant AcrPull manually." -ForegroundColor Yellow
+        Write-Host "  Foundry project has no system-assigned identity; enable it then re-run, or grant AcrPull manually." -ForegroundColor Yellow
     }
     else {
         $existing = az role assignment list --assignee-object-id $foundryPrincipalId --assignee-principal-type ServicePrincipal --scope $registry --role "AcrPull" --query "[0].id" -o tsv 2>$null
@@ -138,12 +157,25 @@ if ($foundry -and $registry) {
                 --scope $registry | Out-Null
             if ($LASTEXITCODE -ne 0) {
                 Write-Host "  FAILED (need Microsoft.Authorization/roleAssignments/write on the registry)" -ForegroundColor Red
+                # Delegated 'Foundry Owner' has an ABAC condition that only permits
+                # assigning a fixed allow-list of Foundry/AI roles -- AcrPull is NOT
+                # on it, so a normal project owner cannot grant this. Emit a ready-to-
+                # paste command for an admin (Owner / User Access Administrator) to run.
+                Write-Host "  -> Ask an admin (Owner / User Access Administrator) to run:" -ForegroundColor Yellow
+                Write-Host ""
+                Write-Host "     az role assignment create ``" -ForegroundColor White
+                Write-Host "       --assignee-object-id $foundryPrincipalId ``" -ForegroundColor White
+                Write-Host "       --assignee-principal-type ServicePrincipal ``" -ForegroundColor White
+                Write-Host "       --role AcrPull ``" -ForegroundColor White
+                Write-Host "       --scope $registry" -ForegroundColor White
+                Write-Host ""
             } else {
                 Write-Host "  OK" -ForegroundColor Green
             }
         }
     }
     Write-Host "  NOTE: the user running 'deploy-hosted' also needs 'Azure AI Project Manager' at project scope." -ForegroundColor DarkGray
+    Write-Host "  NOTE: the registry's ARM-auth policy must be enabled (az acr config authentication-as-arm show --registry <acr>)." -ForegroundColor DarkGray
 }
 
 Write-Host ""
