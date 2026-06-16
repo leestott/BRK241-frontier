@@ -14,7 +14,7 @@ param namePrefix string = 'fbreops'
 @description('Azure region for deployment.')
 param location string = resourceGroup().location
 
-@description('Event Hub SKU (Standard required for AAD auth).')
+@description('Event Hubs SKU (Standard required for Microsoft Entra auth).')
 @allowed([ 'Basic', 'Standard', 'Premium' ])
 param eventHubSku string = 'Standard'
 

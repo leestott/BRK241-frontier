@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     # Web IQ + Work IQ snippets so the demo shows grounded reasoning.
     foundry_iq_enabled: bool = Field(default=True, alias="FIBREOPS_FOUNDRY_IQ")
 
-    # M365 Copilot publishing — base URL that the declarative agent's actions
+    # Microsoft 365 Copilot publishing — base URL that the declarative agent's actions
     # call back into (the FastAPI app, exposed publicly). Used by `publish-m365`.
     m365_action_base_url: Optional[str] = Field(default=None, alias="M365_ACTION_BASE_URL")
     m365_app_id: str = Field(default="fibreops-copilot-agent", alias="M365_APP_ID")

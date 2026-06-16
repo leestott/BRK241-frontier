@@ -67,7 +67,7 @@ type src\fibreops\telemetry\generator.py | Select-Object -First 25
 
 **Point out:**
 - One file, two modes: in-process generator (deterministic for this demo) and `EventHubConsumerClient` against a real namespace (`EVENT_HUB_FQDN`).
-- `DefaultAzureCredential` — no connection strings, no key rotation, AAD-only Event Hub.
+- `DefaultAzureCredential` — no connection strings, no key rotation, Microsoft Entra ID-only Event Hub.
 
 ---
 
@@ -78,7 +78,7 @@ type src\fibreops\telemetry\generator.py | Select-Object -First 25
 **On screen:** VS Code → `src/fibreops/agents/instructions.py`.
 
 **Say:**
-> "Three role-specialised Prompt Agents, all hosted in **Azure AI Foundry Agent Service**. Each has its own tool surface, its own instructions, and a strict output contract. The Coordinator hands off to Dispatch with a literal `HANDOFF:DISPATCH` token — no fuzzy 'I think we should…'. This is how you stop agents from inventing work."
+> "Three role-specialised Prompt Agents, all hosted in **Microsoft Foundry Agent Service**. Each has its own tool surface, its own instructions, and a strict output contract. The Coordinator hands off to Dispatch with a literal `HANDOFF:DISPATCH` token — no fuzzy 'I think we should…'. This is how you stop agents from inventing work."
 
 **Highlight:**
 - The JSON schema in `INCIDENT_ANALYSIS_INSTRUCTIONS_V1`.
@@ -153,7 +153,7 @@ Get-Content state\runs.jsonl | Select-Object -First 1 | ConvertFrom-Json | Conve
 **Say:**
 > "Five-criterion rubric: did the analysis come back complete, was severity consistent with customer impact, did a ticket land in ITSM, did dispatch policy match severity, was an SOP cited. Run 2 scored 0.90 — the agent didn't escalate a medium attenuation that was hitting six thousand customers. The optimiser **wrote its own improvement suggestion**: add a hard rule for >5k customers. Next iteration of the prompt, that rubric criterion passes."
 
-**Pivot to App Insights** (one Foundry-portal-or-AppInsights tab) and run a query from `docs/KQL.md`:
+**Pivot to Application Insights** (one Foundry-portal-or-AppInsights tab) and run a query from `docs/KQL.md`:
 
 ```kusto
 // Agent decision timeline for the last hour
@@ -235,7 +235,7 @@ WINDOW LAYOUT
 [ Terminal — full screen during Act 3 ]
 [ Teams channel — pop-out, lower-right ]
 [ VS Code: instructions.py — Act 2 only ]
-[ App Insights / Foundry portal — Act 5 only ]
+[ Application Insights / Foundry portal — Act 5 only ]
 
 KILL-SWITCH
 ===========
@@ -321,5 +321,5 @@ can flip between terminal and browser freely and they always agree.
 | Teams                 | **Real webhook**       | Identical                                      |
 | Voice                 | SSML outbox (`state/voice_outbox.jsonl`) | **Azure AI Voice Live** (`AZURE_VOICE_LIVE_ENDPOINT`) |
 | Evaluation            | Local rubric + JSONL   | + Foundry Evals (`FoundryEvals` is in the SDK) |
-| Tracing               | OpenTelemetry → App Insights | Identical                                |
+| Tracing               | OpenTelemetry → Application Insights | Identical                                |
 

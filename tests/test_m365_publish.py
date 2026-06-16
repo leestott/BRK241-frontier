@@ -1,4 +1,4 @@
-"""Tests for the M365 Copilot declarative agent package builder.
+"""Tests for the Microsoft 365 Copilot declarative agent package builder.
 
 Validates manifest shape, PNG validity, zip contents, env-var hot-swap of
 the action base URL + publisher metadata, and the ``publish-m365`` CLI
@@ -120,7 +120,7 @@ def test_publish_m365_cli(chdir_state_tmp: Path, tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert (out / "fibreops-copilot.zip").exists()
     assert (out / "declarativeAgent.json").exists()
-    assert "M365 Copilot package" in result.output
+    assert "Microsoft 365 Copilot package" in result.output
 
 
 def test_publish_m365_cli_warns_without_base_url(

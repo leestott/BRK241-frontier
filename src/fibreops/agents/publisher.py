@@ -7,7 +7,7 @@ The Foundry hosted-agent flow has two phases:
      instructions, tools and generation parameters into a
      ``PromptAgentDefinition``. Then publish via
      ``AIProjectClient.agents.create_version(agent_name=..., definition=...)``.
-     This persists the agent in Azure AI Foundry as a versioned, hosted
+     This persists the agent in Microsoft Foundry as a versioned, hosted
      Prompt Agent.
 
   2. **Run** (every request): connect with

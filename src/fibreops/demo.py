@@ -173,7 +173,7 @@ def run_demo(
 
 @app.command("publish")
 def publish_hosted_agents() -> None:
-    """Publish the three role agents as hosted Prompt Agents in Azure AI Foundry."""
+    """Publish the three role agents as hosted Prompt Agents in Microsoft Foundry."""
     init_observability()
     settings = get_settings()
     if not settings.foundry_enabled:
@@ -350,7 +350,7 @@ def publish_m365_command(
     from .dist.m365 import build_m365_package
 
     artefacts = build_m365_package(out_dir)
-    t = Table(title="M365 Copilot package", show_lines=False)
+    t = Table(title="Microsoft 365 Copilot package", show_lines=False)
     t.add_column("Artefact", style="cyan")
     t.add_column("Path")
     for name, path in artefacts.items():

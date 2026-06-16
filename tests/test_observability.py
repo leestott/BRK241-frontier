@@ -62,7 +62,7 @@ def test_orchestrator_span_propagates_common_attributes(chdir_state_tmp):
         if s["name"] == "tool.ticketing.create_ticket"
         and s["parent_id"] == parent["span_id"]
     )
-    # Child span inherits trace_id so the App Insights operation_Id correlation works.
+    # Child span inherits trace_id so the Application Insights operation_Id correlation works.
     assert parent["trace_id"] == child["trace_id"]
     assert parent["attributes"]["severity"] == "critical"
 

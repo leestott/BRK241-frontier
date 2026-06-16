@@ -182,14 +182,14 @@ def main() -> Path:
     # Title
     d.text((40, 28), "FibreOps — Autonomous Fibre Outage Response", font=F_TITLE, fill=INK)
     d.text((42, 74),
-           "Microsoft Agent Framework  •  Azure AI Foundry Agent Service  •  Event Hubs  •  Teams  •  D365 (mock)",
+           "Microsoft Agent Framework  •  Microsoft Foundry Agent Service  •  Event Hubs  •  Teams  •  D365 (mock)",
            font=F_SUB, fill=MUTED)
 
     # ---- INPUT: Telemetry -------------------------------------------------
     tele = (40, 150, 320, 470)
     inner = panel(d, tele, "Telemetry", AZURE)
     chip(d, (60, 205, 300, 285),
-         [("Azure Event Hub", F_BODY_B, INK),
+         [("Azure Event Hubs", F_BODY_B, INK),
           ("DefaultAzureCredential producer / consumer", F_SMALL, MUTED)], AZURE)
     chip(d, (60, 300, 300, 370),
          [("Synthetic generator", F_BODY_B, INK),
@@ -235,7 +235,7 @@ def main() -> Path:
          [("GitHub Copilot SDK adapter", F_BODY_B, INK),
           ("chat over the same orchestrator", F_SMALL, MUTED)], INK)
     chip(d, (980, 480, 1310, 525),
-         [("M365 Copilot declarative agent + action package", F_SMALL, MUTED)],
+         [("Microsoft 365 Copilot declarative agent + action package", F_SMALL, MUTED)],
          GREY, fill="#f7f7f7")
 
     # ---- OBSERVABILITY + OPTIMISER (far right) ---------------------------

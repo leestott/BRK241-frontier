@@ -1,7 +1,7 @@
 > FibreOps — Autonomous Fibre Outage Response System (BRK241)
 
 > Reference implementation of the **Autonomous Fibre Outage Response** demo
-> built on **Microsoft AI Foundry Agent Service**, the **Microsoft Agent
+> built on **Microsoft Foundry Agent Service**, the **Microsoft Agent
 > Framework**, **Azure Event Hubs**, **Microsoft Teams**, and a **mocked
 > Dynamics 365 Field Service** (because most demo tenants don't have D365
 > Field Service provisioned).
@@ -14,25 +14,73 @@
                                                 └─▶ FieldDispatchAgent     ──▶ D365 booking + Teams update
                                                           │
                                                           ▼
-                                              OpenTelemetry → App Insights
+                                              OpenTelemetry → Application Insights
                                                           │
                                                           ▼
                                               Optimiser (rubric → suggestions)
 ```
 
-Agents are **hosted Prompt Agents** in Azure AI Foundry Agent Service
+Agents are **hosted Prompt Agents** in Microsoft Foundry Agent Service
 (`agent_framework_foundry.FoundryAgent`). Tools are typed Python functions
 the runtime supplies to the hosted definition.
 
+### Architecture diagram
+
+![FibreOps architecture diagram](./docs/images/architecture-diagram.png)
+
+> Regenerate with `python scripts/gen_architecture_diagram.py`
+> (writes `docs/images/architecture-diagram.png`).
+
+### Services architecture (swim-lane)
+
+A layered, service-oriented view of FibreOps. Read it left-to-right across four
+lanes — **Client → Application Layer → Agent Framework Orchestration →
+External Services** — with an Azure services band along the bottom and
+managed-identity security/governance applied across every component.
+
+![FibreOps services architecture diagram](./docs/images/services-architecture.png)
+
+**How to read it.** Solid arrows are the **orchestration flow** (control passing
+between FibreOps components); dashed arrows are **external data flow** (calls
+that leave the process for an Azure or Microsoft 365 service).
+
+| # | Node | Lane | Role |
+| --- | --- | --- | --- |
+| ① | NOC Operator / Foundry Playground | Client | Human-in-the-loop driving the demo from the browser, CLI, or Foundry Playground |
+| ② | NOC Console (FastAPI + HTMX · Demo CLI) | Application | Entry point — serves the dashboard and exposes the run/optimiser JSON API |
+| ③ | Telemetry ingest (Event Hub · generator) | Application | Real Azure Event Hubs consumer **or** the deterministic synthetic OLT signal generator |
+| ④ | `IncidentAnalysisAgent` | Orchestration | Classifies severity, finds root cause, pulls the right SOP |
+| ⑤ | `NetOpsCoordinatorAgent` | Orchestration | Files the D365 incident and posts the Teams outage notice |
+| ⑥ | `FieldDispatchAgent` | Orchestration | Selects the best engineer, books the resource, updates Teams |
+| ⑦ | Integration tools (`FunctionTool`) | Orchestration | Typed Python tools the runtime supplies to the hosted agents |
+| ⑧ | Knowledge — SOPs + topology | Orchestration | Retrieval over standard operating procedures and the fibre node graph |
+| ⑨ | Web IQ / Work IQ search | Orchestration | Grounding against Microsoft 365 / web sources |
+| ⑩ | Microsoft Teams | External | Adaptive Card outage notices + status updates via Incoming Webhook |
+| ⑪ | Dynamics 365 Field Service (mock) | External | Dataverse-shaped REST for incidents and bookable-resource bookings |
+| ⑫ | Azure AI Voice Live | External | SSML status announcements, voice/prosody chosen per severity |
+| ⑬ | Microsoft Foundry Agent Service | External | Hosts the published Prompt Agents that back ④–⑥ |
+
+**End-to-end flow.** A telemetry signal arrives at ③ (Event Hub or generator)
+and the **Orchestrator** (`handle_signal`, lane 3) drives it through the agent
+pipeline ④ → ⑤ → ⑥. Each agent calls the typed tools ⑦–⑨ — SOP/topology
+lookups and Web/Work IQ grounding — then fans out to the external services:
+ticket and booking to **D365** ⑪, Adaptive Cards to **Microsoft Teams** ⑩, and
+spoken updates through **Azure AI Voice Live** ⑫. The agents themselves are
+hosted Prompt Agents in **Microsoft Foundry Agent Service** ⑬. The operator ①
+sees everything live in the NOC Console ②.
+
+> Regenerate with `python scripts/gen_services_architecture.py`
+> (writes `docs/images/services-architecture.png`).
+
 ## Capabilities
 
-- 📡 **Telemetry** — synthetic IoT signal generator + real Azure Event Hub
+- 📡 **Telemetry** — synthetic IoT signal generator + real Azure Event Hubs
   producer/consumer with `DefaultAzureCredential`.
 - 🧠 **Agent system** — three role-specialised agents (Incident Analysis,
   NetOps Coordinator, Field Dispatch). Three pluggable backends share one
   `.run()` contract:
   - **`hosted`** — `agent_framework_foundry.FoundryAgent` connected to a
-    Prompt Agent published to **Azure AI Foundry Agent Service** (the
+    Prompt Agent published to **Microsoft Foundry Agent Service** (the
     architecture-diagram path).
   - **`foundry`** — `agent_framework.Agent` + `FoundryChatClient` with the
     definition resolved locally (useful while iterating on prompts).
@@ -47,7 +95,7 @@ the runtime supplies to the hosted definition.
   real Dataverse environment with no code changes.
 - 🔭 **Observability** — JSON structured logs + OpenTelemetry spans persisted
   to `state/traces.jsonl`. Set `APPLICATIONINSIGHTS_CONNECTION_STRING` to
-  ship to App Insights.
+  ship to Application Insights.
 - 🔁 **Optimiser** — rubric-based evaluation of every run + actionable
   improvement suggestions. Drop-in target for `FoundryEvals` in production.
 
@@ -103,7 +151,7 @@ az login        # for Foundry + Event Hub via DefaultAzureCredential
 | `python -m fibreops.demo backend`                | Show which backend the current config will resolve to              |
 | `python -m fibreops.demo card`                   | Render the latest Teams Adaptive Card payload from the outbox      |
 | `python -m fibreops.demo chat "status"`          | Talk to FibreOps via the **GitHub Copilot SDK adapter** (slide 4)  |
-| `python -m fibreops.demo publish-m365`           | Build the **M365 Copilot declarative agent + action package** (slide 13) |
+| `python -m fibreops.demo publish-m365`           | Build the **Microsoft 365 Copilot declarative agent + action package** (slide 13) |
 
 ### Agent backend resolution
 
@@ -227,7 +275,7 @@ gives the same observable behaviour and the same trace shape.
 
 ## Foundry IQ — Web IQ + Work IQ (BRK241 slide 9)
 
-The Incident Analysis agent grounds its reasoning with **Microsoft AI Foundry
+The Incident Analysis agent grounds its reasoning with **Microsoft Foundry
 IQ** — the "Web IQ" and "Work IQ" tiles on slide 9. Two new tools sit in front
 of those endpoints:
 
@@ -293,7 +341,7 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8800/sdk/chat -Body '{"prompt":"
 ## Publishing to Microsoft 365 Copilot (BRK241 slide 13)
 
 The Field Service Coordinator featured on slide 13 ships as a **declarative
-agent + action plugin** ready for sideload via Teams Admin Center / M365
+agent + action plugin** ready for sideload via Teams Admin Center / Microsoft 365
 Admin Center. Build the package with:
 
 ```powershell
@@ -337,10 +385,10 @@ deployed FastAPI app.
 | Knowledge (SOPs, topology) | Foundry Work IQ / Web IQ / Fabric IQ connections          | Local JSON + markdown                       |
 | Foundry IQ grounding     | `FOUNDRY_WEB_IQ_ENDPOINT` + `FOUNDRY_WORK_IQ_ENDPOINT`     | Deterministic fixtures in `tools/knowledge.py` |
 | GitHub Copilot SDK       | `@github/copilot-sdk` against a hosted endpoint            | `fibreops.sdk.FibreOpsCopilotClient` (in-process) |
-| M365 Copilot publishing  | Sideloaded `fibreops-copilot.zip` (Teams / M365 admin)     | `python -m fibreops.demo publish-m365` produces a placeholder package |
+| Microsoft 365 Copilot publishing | Sideloaded `fibreops-copilot.zip` (Teams / Microsoft 365 admin) | `python -m fibreops.demo publish-m365` produces a placeholder package |
 | Memory                   | Foundry Agent Memory store                                 | SQLite `state/memory.db`                    |
 | Optimiser                | `FoundryEvals` + `evaluate_traces`                         | Local rubric (`fibreops.optimiser`)         |
-| App Insights             | `APPLICATIONINSIGHTS_CONNECTION_STRING`                    | JSON spans in `state/traces.jsonl`          |
+| Application Insights     | `APPLICATIONINSIGHTS_CONNECTION_STRING`                    | JSON spans in `state/traces.jsonl`          |
 
 ## Layout
 
@@ -355,19 +403,19 @@ src/fibreops/
   mocks/           # FastAPI Dataverse-shaped D365 service
   data/            # SOPs (markdown), fibre nodes + engineers (JSON)
   config.py        # pydantic settings
-  observability.py # logging + OTel tracing (JSONL + App Insights)
+  observability.py # logging + OTel tracing (JSONL + Application Insights)
   orchestrator.py  # event loop wiring signals -> agents -> integrations
   optimiser.py     # rubric scoring + improvement suggestions
   demo.py          # rich one-command CLI (run / publish / cleanup / backend / card / ui / chat / publish-m365)
   ui/              # FastAPI + HTMX NOC operations console (templates + static)
   sdk/             # GitHub Copilot SDK adapter (FibreOpsCopilotClient, slide 4)
-  dist/            # M365 Copilot declarative agent + action package builder (slide 13)
+  dist/            # Microsoft 365 Copilot declarative agent + action package builder (slide 13)
   agents/routines.py  # declarative Foundry Routine for NetOps coordinator
-infra/             # Bicep for Event Hub / Key Vault / Log Analytics / App Insights
+infra/             # Bicep for Event Hubs / Key Vault / Log Analytics / Application Insights
 tests/             # unit + e2e smoke tests
 docs/
   DEMO.md          # rehearsal-grade 8-minute stage script
-  KQL.md           # paste-ready App Insights queries
+  KQL.md           # paste-ready Application Insights queries
 ```
 
 ## Tests
@@ -464,7 +512,7 @@ Most users should prefer `azd up`.
 
 ## See also
 - `docs/DEMO.md` — rehearsal-grade 8-minute stage script with timings, speaker notes, fail-safes, and a kill-switch.
-- `docs/KQL.md` — paste-ready App Insights / Log Analytics queries for the agent decision timeline, per-agent latency, optimiser score trend, dispatch SLA, and full per-incident trace replay.
+- `docs/KQL.md` — paste-ready Application Insights / Log Analytics queries for the agent decision timeline, per-agent latency, optimiser score trend, dispatch SLA, and full per-incident trace replay.
 
 ## Contributing, security, and code of conduct
 

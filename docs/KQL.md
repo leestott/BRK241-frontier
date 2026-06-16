@@ -1,4 +1,4 @@
-# App Insights / Log Analytics KQL Pack — FibreOps
+# Application Insights / Log Analytics KQL Pack — FibreOps
 
 Paste-ready queries for the BRK241 demo. Every query targets the standard
 OpenTelemetry-on-Azure-Monitor tables (`dependencies`, `traces`) that the
@@ -8,7 +8,7 @@ emit lands in your workspace within ~60 seconds.
 
 > **Telemetry shape** (see `src/fibreops/observability.py`):
 >
-> | Source                              | App Insights table | Name                            |
+> | Source                              | Application Insights table | Name                            |
 > | ----------------------------------- | ------------------ | ------------------------------- |
 > | `orchestrator.handle_signal`        | `dependencies`     | `orchestrator.handle_signal`    |
 > | `agent_span(...)`                   | `dependencies`     | `agent.IncidentAnalysisAgent` … |

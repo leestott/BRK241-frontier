@@ -10,7 +10,7 @@ Three backends are supported (see :mod:`fibreops.agents.factory`):
 
   - ``hosted``  : :class:`agent_framework_foundry.FoundryAgent` connected to a
     Prompt Agent published via :mod:`fibreops.agents.publisher`. This is the
-    architecture-diagram path: agents are hosted in Azure AI Foundry Agent
+    architecture-diagram path: agents are hosted in Microsoft Foundry Agent
     Service, the runtime supplies the Python tool implementations.
   - ``foundry`` : :class:`agent_framework.Agent` + :class:`FoundryChatClient`
     with the definition resolved locally — useful while iterating.

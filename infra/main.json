@@ -34,7 +34,7 @@
         "Premium"
       ],
       "metadata": {
-        "description": "Event Hub SKU (Standard required for AAD auth)."
+        "description": "Event Hubs SKU (Standard required for Microsoft Entra auth)."
       }
     },
     "containerImageName": {

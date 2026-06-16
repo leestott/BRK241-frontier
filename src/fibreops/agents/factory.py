@@ -4,7 +4,7 @@ Three backends are supported, selected by ``FIBREOPS_AGENT_BACKEND`` or
 auto-detected:
 
 * ``hosted``  — :class:`agent_framework_foundry.FoundryAgent` bound to a
-  Prompt Agent that has been published to Azure AI Foundry via
+  Prompt Agent that has been published to Microsoft Foundry via
   :mod:`fibreops.agents.publisher`. This is the architecture-diagram path:
   agents are hosted in Foundry Agent Service, the runtime supplies the Python
   tool implementations.

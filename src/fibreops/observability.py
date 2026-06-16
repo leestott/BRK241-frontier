@@ -97,7 +97,7 @@ def _configure_tracing() -> None:
 
             configure_azure_monitor(connection_string=settings.applicationinsights_connection_string)
         except Exception as exc:  # pragma: no cover
-            logging.getLogger(__name__).warning("App Insights init failed: %s", exc)
+            logging.getLogger(__name__).warning("Application Insights init failed: %s", exc)
     trace.set_tracer_provider(provider)
     _tracing_configured = True
 
@@ -144,7 +144,7 @@ def tool_span(tool_name: str, **attrs: Any) -> Iterator[Any]:
 def orchestrator_span(run_id: str, **attrs: Any) -> Iterator[Any]:
     """Top-level span wrapping a single signal-to-dispatch run.
 
-    Lands in App Insights ``dependencies`` table with name
+    Lands in Application Insights ``dependencies`` table with name
     ``orchestrator.handle_signal``. All child agent/tool spans inherit
     ``operation_Id`` so the KQL trace-replay query can stitch them back.
     """
@@ -160,7 +160,7 @@ def orchestrator_span(run_id: str, **attrs: Any) -> Iterator[Any]:
 def record_event(name: str, **attrs: Any) -> None:
     """Emit an OpenTelemetry span event on the current span.
 
-    Span events surface in the App Insights ``traces`` table with ``message``
+    Span events surface in the Application Insights ``traces`` table with ``message``
     set to ``name`` and the attributes flattened into ``customDimensions``.
     """
     current = trace.get_current_span()
