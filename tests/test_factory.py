@@ -37,8 +37,11 @@ def test_resolve_backend_env_override(monkeypatch):
     assert _resolve_backend(None) == AgentBackend.LOCAL
 
 
-def test_resolve_backend_auto_without_foundry_is_local(monkeypatch):
+def test_resolve_backend_auto_without_foundry_is_local(monkeypatch, tmp_path):
+    # No Foundry endpoint and no published registry → auto falls back to local.
+    monkeypatch.delenv("AZURE_AI_PROJECT_ENDPOINT", raising=False)
     monkeypatch.setenv("FIBREOPS_AGENT_BACKEND", "auto")
+    monkeypatch.chdir(tmp_path)  # ensure no state/foundry_agents.json
     _refresh_settings()
     assert _resolve_backend(None) == AgentBackend.LOCAL
 
