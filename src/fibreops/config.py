@@ -21,6 +21,10 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("AZURE_AI_PROJECT_ENDPOINT", "FOUNDRY_PROJECT_ENDPOINT"),
     )
     azure_ai_project_connection_string: Optional[str] = Field(default=None, alias="AZURE_AI_PROJECT_CONNECTION_STRING")
+    # Foundry project name (the trailing path segment of the project endpoint,
+    # e.g. ``leestott-1891`` from ``…/api/projects/leestott-1891``). Required
+    # for Voice Live agent-mode URLs. Auto-derived from the endpoint when unset.
+    azure_ai_project_name: Optional[str] = Field(default=None, alias="AZURE_AI_PROJECT_NAME")
     # Hosted-agent deploys conventionally pass the model as ``MODEL_DEPLOYMENT_NAME``;
     # accept that alongside ``AZURE_AI_MODEL_DEPLOYMENT``.
     azure_ai_model_deployment: str = Field(

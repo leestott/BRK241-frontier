@@ -14,6 +14,7 @@ Auth (matching microsoft/foundry-agent-voice-mode-sample):
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from typing import Any, Optional
@@ -21,6 +22,7 @@ from urllib.parse import quote, urlparse, urlunparse
 
 from ..config import Settings, get_settings
 from ..observability import get_logger
+from .agent_tools import INSTRUCTIONS, TOOL_DEFINITIONS, dispatch as dispatch_tool
 
 logger = get_logger(__name__)
 
@@ -79,6 +81,11 @@ def build_upstream_url(settings: Optional[Settings] = None) -> Optional[str]:
             logger.error("Voice Live agent mode requires Entra auth; no token available")
             return None
         project_name = getattr(settings, "azure_ai_project_name", None) or ""
+        if not project_name and settings.azure_ai_project_endpoint:
+            # Derive from endpoint path: …/api/projects/<project_name>
+            tail = urlparse(settings.azure_ai_project_endpoint).path.rstrip("/").rsplit("/", 1)
+            if len(tail) == 2:
+                project_name = tail[1]
         crid = f"{int(time.time() * 1000)}-{uuid.uuid4().hex[:10]}"
         qs = (
             f"trafficType=FoundryPortal"
@@ -136,9 +143,47 @@ def session_descriptor(settings: Optional[Settings] = None) -> dict[str, Any]:
     }
 
 
+def _augment_session_update(text: str) -> tuple[str, bool]:
+    """If *text* is a session.update event, merge FibreOps instructions+tools.
+
+    Only augments when the session uses turn detection (mic/duplex mode).
+    One-shot TTS sessions (speak mode, ``turn_detection: null``) are left
+    untouched so the model just renders the engineer's text without trying
+    to call lookup tools on it.
+
+    Returns ``(new_text, was_session_update)``. When the input is not a
+    session.update event (or not JSON at all), returns the original text
+    untouched and ``was_session_update=False``.
+    """
+    try:
+        evt = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return text, False
+    if not isinstance(evt, dict) or evt.get("type") != "session.update":
+        return text, False
+    sess = evt.setdefault("session", {})
+    if not isinstance(sess, dict):
+        return text, True
+    # Skip augmentation in one-shot speak mode — only mic/duplex sessions
+    # benefit from tool calling.
+    if not sess.get("turn_detection"):
+        return text, True
+    if not sess.get("instructions"):
+        sess["instructions"] = INSTRUCTIONS
+    sess["tools"] = TOOL_DEFINITIONS
+    sess["tool_choice"] = sess.get("tool_choice") or "auto"
+    return json.dumps(evt), True
+
+
+async def _handle_function_call(upstream: Any, call_id: str, name: str, args_json: str) -> None:
+    """Deprecated. Inline-flushed in ``upstream_to_client`` after response.done."""
+    raise NotImplementedError
+
+
 async def proxy_session(client_ws: Any) -> None:
     """Bridge a FastAPI WebSocket to the upstream Voice Live WebSocket."""
-    upstream_url = build_upstream_url()
+    settings = get_settings()
+    upstream_url = build_upstream_url(settings)
     if not upstream_url:
         await client_ws.close(code=1011, reason="Voice Live not configured")
         return
@@ -166,26 +211,101 @@ async def proxy_session(client_ws: Any) -> None:
         await client_ws.close(code=1011, reason=f"upstream connect failed: {exc}")
         return
 
+    # Server-side tool augmentation for non-agent mode. When we don't have a
+    # Voice Live agent bound, inject FibreOps instructions + function tools into
+    # the first session.update the client sends so the realtime model can call
+    # back into our Python helpers (lookup incidents, nodes, SOPs, etc.).
+    augment_tools = not settings.azure_voice_live_agent_id
+    session_augmented = {"done": False}
+
     async def client_to_upstream() -> None:
         try:
             while True:
                 message = await client_ws.receive()
                 if message.get("type") == "websocket.disconnect":
                     break
-                if (text := message.get("text")) is not None:
+                text = message.get("text")
+                data = message.get("bytes")
+                if text is not None:
+                    if augment_tools and not session_augmented["done"]:
+                        new_text, was_session_update = _augment_session_update(text)
+                        if was_session_update:
+                            session_augmented["done"] = True
+                        text = new_text
                     await upstream.send(text)
-                elif (data := message.get("bytes")) is not None:
+                elif data is not None:
                     await upstream.send(data)
         except Exception as exc:
             logger.debug("client→upstream pump ended: %s", exc)
 
     async def upstream_to_client() -> None:
+        # Track in-flight function calls and outputs to flush only after the
+        # current response has fully completed. The OpenAI realtime contract
+        # rejects ``response.create`` while a response is still active, so we
+        # buffer ``function_call_output`` items until ``response.done`` arrives.
+        pending_calls: dict[str, dict[str, str]] = {}
+        ready_outputs: list[tuple[str, str]] = []  # (call_id, output_json)
         try:
             async for frame in upstream:
                 if isinstance(frame, (bytes, bytearray)):
                     await client_ws.send_bytes(bytes(frame))
-                else:
-                    await client_ws.send_text(frame)
+                    continue
+                # Always forward the raw frame to the browser first so it sees
+                # the same event stream the model produced.
+                await client_ws.send_text(frame)
+                if not augment_tools:
+                    continue
+                try:
+                    evt = json.loads(frame)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                etype = evt.get("type")
+                if etype == "response.output_item.added":
+                    item = evt.get("item") or {}
+                    if item.get("type") == "function_call":
+                        call_id = item.get("call_id") or item.get("id")
+                        name = item.get("name", "")
+                        if call_id:
+                            pending_calls[call_id] = {"name": name, "args": ""}
+                elif etype == "response.function_call_arguments.delta":
+                    call_id = evt.get("call_id")
+                    delta = evt.get("delta", "")
+                    if call_id and call_id in pending_calls:
+                        pending_calls[call_id]["args"] += delta
+                elif etype == "response.function_call_arguments.done":
+                    call_id = evt.get("call_id")
+                    name = evt.get("name") or pending_calls.get(call_id, {}).get("name", "")
+                    args_json = evt.get("arguments") or pending_calls.get(call_id, {}).get("args", "")
+                    pending_calls.pop(call_id, None)
+                    if not call_id or not name:
+                        continue
+                    logger.info("Voice tool call: %s args=%s", name, args_json[:200])
+                    try:
+                        output = await dispatch_tool(name, args_json)
+                    except Exception as exc:
+                        logger.warning("dispatch_tool crashed: %s", exc)
+                        output = json.dumps({"error": str(exc)})
+                    ready_outputs.append((call_id, output))
+                elif etype == "response.done" and ready_outputs:
+                    # Flush all buffered tool outputs, then ask the model to
+                    # continue with a single response.create.
+                    for call_id, output in ready_outputs:
+                        try:
+                            await upstream.send(json.dumps({
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "function_call_output",
+                                    "call_id": call_id,
+                                    "output": output,
+                                },
+                            }))
+                        except Exception as exc:
+                            logger.warning("Failed to send function_call_output: %s", exc)
+                    ready_outputs.clear()
+                    try:
+                        await upstream.send(json.dumps({"type": "response.create"}))
+                    except Exception as exc:
+                        logger.warning("Failed to send response.create: %s", exc)
         except Exception as exc:
             logger.debug("upstream→client pump ended: %s", exc)
 
