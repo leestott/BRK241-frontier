@@ -269,3 +269,96 @@ def work_iq_search(query: str, limit: int = 3) -> list[dict[str, Any]]:
             results = _match_fixtures(_WORK_IQ_FIXTURES, query, limit)
         _persist_lookup(source="work_iq", query=query, results=results)
         return results
+
+def _knowledge_base_credential():
+    """Credential for Foundry IQ retrieval: api-key if set, else managed identity."""
+    settings = get_settings()
+    if settings.foundry_iq_search_api_key:
+        from azure.core.credentials import AzureKeyCredential
+
+        return AzureKeyCredential(settings.foundry_iq_search_api_key)
+    from azure.identity import DefaultAzureCredential
+
+    return DefaultAzureCredential()
+
+
+def knowledge_base_search(query: str, limit: int = 3) -> list[dict[str, Any]]:
+    """Foundry IQ — agentic retrieval over the FibreOps knowledge base.
+
+    Queries the Azure AI Search knowledge base configured by
+    ``FOUNDRY_IQ_SEARCH_ENDPOINT`` + ``FOUNDRY_IQ_KNOWLEDGE_BASE`` using
+    managed-identity auth (or ``FOUNDRY_IQ_SEARCH_API_KEY`` for local dev). The
+    knowledge base runs minimal-effort agentic retrieval over the FibreOps SOPs
+    and node topology and returns grounded, cited extracts.
+
+    Falls back to the deterministic Work IQ fixtures when no knowledge base is
+    configured or retrieval fails, so the demo always works.
+
+    Returns a list of ``{title, snippet, source}`` dicts.
+    """
+    with tool_span("knowledge.knowledge_base_search", query=query):
+        settings = get_settings()
+        limit = max(1, min(int(limit), 10))
+        if not settings.knowledge_base_enabled:
+            results = _match_fixtures(_WORK_IQ_FIXTURES, query, limit)
+            _persist_lookup(source="foundry_iq", query=query, results=results)
+            return results
+        try:
+            from azure.search.documents.knowledgebases import KnowledgeBaseRetrievalClient
+            from azure.search.documents.knowledgebases.models import (
+                KnowledgeBaseRetrievalRequest,
+                KnowledgeRetrievalSemanticIntent,
+            )
+
+            client = KnowledgeBaseRetrievalClient(
+                endpoint=settings.foundry_iq_search_endpoint or "",
+                knowledge_base_name=settings.foundry_iq_knowledge_base or "",
+                credential=_knowledge_base_credential(),
+            )
+            # Minimal reasoning effort requires `intents` (not chat messages).
+            response = client.retrieve(
+                KnowledgeBaseRetrievalRequest(
+                    intents=[KnowledgeRetrievalSemanticIntent(search=query)]
+                )
+            )
+            data = response.as_dict()
+            kb_name = settings.foundry_iq_knowledge_base or "Foundry IQ"
+            # Extractive output returns the grounded passages in `response` as a
+            # JSON array of {ref_id, title, content/terms} objects.
+            grounded_text = ""
+            for msg in data.get("response", []):
+                for c in msg.get("content", []):
+                    if c.get("text"):
+                        grounded_text += c["text"]
+            results: list[dict[str, Any]] = []
+            try:
+                chunks = json.loads(grounded_text) if grounded_text else []
+            except (ValueError, TypeError):
+                chunks = []
+            for chunk in (chunks if isinstance(chunks, list) else [])[:limit]:
+                if not isinstance(chunk, dict):
+                    continue
+                body = chunk.get("content") or chunk.get("terms") or chunk.get("text") or ""
+                if isinstance(body, (list, dict)):
+                    body = json.dumps(body)
+                results.append(
+                    {
+                        "title": chunk.get("title") or "Foundry IQ result",
+                        "snippet": str(body)[:600],
+                        "source": f"Foundry IQ · {kb_name}",
+                    }
+                )
+            if not results and grounded_text:
+                results.append(
+                    {
+                        "title": "Foundry IQ grounded answer",
+                        "snippet": grounded_text[:600],
+                        "source": f"Foundry IQ · {kb_name}",
+                    }
+                )
+            results = results[:limit]
+        except Exception as exc:  # pragma: no cover - defensive on preview API
+            logger.warning("Foundry IQ retrieval failed, using fixtures: %s", exc)
+            results = _match_fixtures(_WORK_IQ_FIXTURES, query, limit)
+        _persist_lookup(source="foundry_iq", query=query, results=results)
+        return results

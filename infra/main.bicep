@@ -63,6 +63,16 @@ param voiceLiveSku string = 'S0'
 @description('Tag value AZD uses to map this resource to the named service in azure.yaml.')
 param serviceName string = 'fibreops-noc'
 
+@description('Provision an Azure AI Search service for the Foundry IQ knowledge base.')
+param provisionFoundryIq bool = true
+
+@description('SKU for the Azure AI Search service backing Foundry IQ.')
+@allowed([ 'basic', 'standard' ])
+param searchSku string = 'basic'
+
+@description('Foundry IQ knowledge base name (created post-deploy by scripts/provision_foundry_iq.py).')
+param foundryIqKnowledgeBase string = 'fibreops-knowledge-base'
+
 var suffix = uniqueString(resourceGroup().id, namePrefix)
 var ehNamespaceName = toLower('${namePrefix}-ehns-${suffix}')
 var ehName = 'fibre-signals'
@@ -72,6 +82,7 @@ var appiName = '${namePrefix}-appi-${suffix}'
 var acrName = toLower('${namePrefix}acr${substring(suffix, 0, 8)}')
 var planName = '${namePrefix}-plan-${suffix}'
 var webName = toLower('${namePrefix}-noc-${substring(suffix, 0, 6)}')
+var searchName = toLower('${namePrefix}-search-${substring(suffix, 0, 8)}')
 var voiceLiveAccountName = toLower('${namePrefix}-aisvc-${substring(suffix, 0, 6)}')
 var voiceLiveRegion = empty(voiceLiveLocation) ? location : voiceLiveLocation
 
@@ -194,6 +205,27 @@ resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
   }
 }
 
+// Azure AI Search backs the Foundry IQ knowledge base (agentic retrieval).
+// The index + knowledge source + knowledge base are created post-deploy by
+// scripts/provision_foundry_iq.py; this only stands up the service + its MI.
+resource search 'Microsoft.Search/searchServices@2024-06-01-preview' = if (provisionFoundryIq) {
+  name: searchName
+  location: location
+  sku: { name: searchSku }
+  identity: { type: 'SystemAssigned' }
+  properties: {
+    replicaCount: 1
+    partitionCount: 1
+    hostingMode: 'default'
+    semanticSearch: 'free'
+    // Allow both RBAC (agent/web MI retrieval) and API keys (provisioning).
+    authOptions: { aadOrApiKey: { aadAuthFailureMode: 'http403' } }
+    publicNetworkAccess: 'Enabled'
+  }
+}
+
+var resolvedSearchEndpoint = provisionFoundryIq ? 'https://${searchName}.search.windows.net' : ''
+
 resource web 'Microsoft.Web/sites@2024-04-01' = {
   name: webName
   location: location
@@ -243,6 +275,9 @@ resource web 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'AZURE_VOICE_LIVE_MODEL', value: azureVoiceLiveModel }
         { name: 'AZURE_VOICE_LIVE_AGENT_ID', value: azureVoiceLiveAgentId }
         { name: 'AZURE_VOICE_LIVE_API_VERSION', value: azureVoiceLiveApiVersion }
+        { name: 'FOUNDRY_IQ_SEARCH_ENDPOINT', value: resolvedSearchEndpoint }
+        { name: 'FOUNDRY_IQ_KNOWLEDGE_BASE', value: provisionFoundryIq ? foundryIqKnowledgeBase : '' }
+        { name: 'FOUNDRY_IQ_MCP_CONNECTION', value: provisionFoundryIq ? 'fibreops-kb-mcp' : '' }
       ]
     }
   }
@@ -272,6 +307,9 @@ output AZURE_CONTAINER_REGISTRY_NAME string = acr.name
 output EVENT_HUB_FQDN string = '${ehNamespace.name}.servicebus.windows.net'
 output EVENT_HUB_NAME string = eh.name
 output KEY_VAULT_NAME string = kv.name
+output AZURE_SEARCH_SERVICE_NAME string = provisionFoundryIq ? search.name : ''
+output AZURE_SEARCH_ENDPOINT string = resolvedSearchEndpoint
+output FOUNDRY_IQ_KNOWLEDGE_BASE string = provisionFoundryIq ? foundryIqKnowledgeBase : ''
 output APPLICATIONINSIGHTS_CONNECTION_STRING string = appi.properties.ConnectionString
 output AZURE_LOG_ANALYTICS_WORKSPACE_ID string = law.id
 output AZURE_VOICE_LIVE_ACCOUNT_NAME string = provisionVoiceLive ? voiceLiveAccount.name : ''

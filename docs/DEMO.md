@@ -267,9 +267,13 @@ Suggested narration overlay:
   with the SOP reference, ticket id, and engineer name.
 - **Act 2a (Foundry IQ, slide 9)** — point at the *Knowledge sources* panel.
   The Incident Analysis agent grounded its reasoning with Web IQ (roadworks,
-  weather) and Work IQ (SLA tiers, site survey) snippets cached in
-  `state/iq_lookups.jsonl`. The `iq · fixtures` pill flips to `foundry-iq`
-  the moment `FOUNDRY_WEB_IQ_ENDPOINT` is set.
+  weather) and the **Foundry IQ knowledge base** (SOPs + node topology via
+  Azure AI Search agentic retrieval), cached in `state/iq_lookups.jsonl`. The
+  `iq · fixtures` pill flips to `foundry-iq` the moment the knowledge base is
+  configured (`FOUNDRY_IQ_SEARCH_ENDPOINT` + `FOUNDRY_IQ_KNOWLEDGE_BASE`), or a
+  legacy `FOUNDRY_WEB_IQ_ENDPOINT` is set. Provision the knowledge base with
+  `scripts/provision_foundry_iq.py` (see the README "Foundry IQ knowledge base"
+  section).
 - **Act 2b (Routines, optional)** — flip `$env:FIBREOPS_NETOPS_ROUTINE = "1"`
   before launch and the `netops · routine` pill turns violet. Same UI, same
   trace shape — narration line: *"the NetOps coordinator is now a Foundry

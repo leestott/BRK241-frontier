@@ -85,6 +85,7 @@ $ehNamespace = az resource list -g $ResourceGroup --resource-type Microsoft.Even
 $keyVault    = az resource list -g $ResourceGroup --resource-type Microsoft.KeyVault/vaults     --query "[0].id" -o tsv
 $registry    = az resource list -g $ResourceGroup --resource-type Microsoft.ContainerRegistry/registries --query "[0].id" -o tsv
 $voiceLive   = az resource list -g $ResourceGroup --resource-type Microsoft.CognitiveServices/accounts --query "[?kind=='AIServices'] | [0].id" -o tsv
+$searchSvc   = az resource list -g $ResourceGroup --resource-type Microsoft.Search/searchServices --query "[0].id" -o tsv
 $foundry     = if ($FoundryAccountName) { az cognitiveservices account show -g $FoundryResourceGroup -n $FoundryAccountName --query id -o tsv } else { "" }
 
 $grants = @(
@@ -94,6 +95,9 @@ $grants = @(
 )
 if ($voiceLive) {
     $grants += @{ Role = "Cognitive Services User"; Scope = $voiceLive; Desc = "use Voice Live realtime Speech endpoint" }
+}
+if ($searchSvc) {
+    $grants += @{ Role = "Search Index Data Reader"; Scope = $searchSvc; Desc = "retrieve from the Foundry IQ knowledge base" }
 }
 if ($foundry) {
     $grants += @{ Role = "Azure AI Developer";             Scope = $foundry; Desc = "invoke hosted Prompt Agents in Foundry Agent Service" }
@@ -118,6 +122,15 @@ foreach ($g in $grants) {
     } else {
         Write-Host "  OK" -ForegroundColor Green
     }
+}
+
+# Foundry IQ: the knowledge base MCP endpoint is reached over RBAC, so the
+# search service must accept Entra tokens (not API key only) or agents get 403.
+if ($searchSvc) {
+    $searchName = ($searchSvc -split "/")[-1]
+    Write-Host "Enabling RBAC (aadOrApiKey) auth on search service '$searchName' (Foundry IQ MCP)..." -ForegroundColor Cyan
+    az search service update --name $searchName --resource-group $ResourceGroup --auth-options aadOrApiKey --aad-auth-failure-mode http403 2>$null | Out-Null
+    Write-Host ($LASTEXITCODE -eq 0 ? "  OK" : "  FAILED (enable manually: az search service update --auth-options aadOrApiKey --aad-auth-failure-mode http403)") -ForegroundColor ($LASTEXITCODE -eq 0 ? "Green" : "Red")
 }
 
 # --- Hosted agent (containerised) image pulls ---
@@ -193,6 +206,18 @@ if ($foundry -and $registry) {
                 Write-Host ""
             } else {
                 Write-Host "  OK" -ForegroundColor Green
+            }
+        }
+        # Foundry IQ: the project MI also retrieves from the knowledge base when
+        # the hosted agent reaches it through an MCP toolbox connection.
+        if ($searchSvc) {
+            $existsSearch = az role assignment list --assignee-object-id $foundryPrincipalId --assignee-principal-type ServicePrincipal --scope $searchSvc --role "Search Index Data Reader" --query "[0].id" -o tsv 2>$null
+            if ($existsSearch) {
+                Write-Host "  project MI already has Search Index Data Reader." -ForegroundColor Yellow
+            }
+            else {
+                az role assignment create --assignee-object-id $foundryPrincipalId --assignee-principal-type ServicePrincipal --role "Search Index Data Reader" --scope $searchSvc | Out-Null
+                Write-Host ($LASTEXITCODE -eq 0 ? "  project MI granted Search Index Data Reader." : "  FAILED to grant project MI Search Index Data Reader.") -ForegroundColor ($LASTEXITCODE -eq 0 ? "Green" : "Red")
             }
         }
     }

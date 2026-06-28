@@ -197,6 +197,17 @@ async def handle_signal(signal: TelemetrySignal) -> dict[str, Any]:
             response = await _agent_run(analysis_agent, analysis_prompt)
             text = _extract_text(response)
             analysis = _parse_analysis_json(text)
+            # Populate the NOC "Knowledge sources" pane with real Foundry IQ
+            # grounding regardless of backend. In hosted mode the agent's MCP
+            # retrieval runs server-side, so record an in-app lookup here too.
+            try:
+                from .config import get_settings as _gs
+                if _gs().foundry_iq_enabled:
+                    from .tools import knowledge_base_search, web_iq_search
+                    web_iq_search(f"{node_ctx.get('region','')} {signal.signal_type.value} outage", limit=2)
+                    knowledge_base_search(f"{signal.signal_type.value} {signal.node_id} SOP remediation", limit=2)
+            except Exception:  # pragma: no cover - grounding pane is best-effort
+                pass
             record["steps"].append({"agent": "IncidentAnalysisAgent", "output": analysis})
             span.set_attribute("incident.severity", analysis["severity"])
             # Update common severity to the resolved (possibly escalated) value

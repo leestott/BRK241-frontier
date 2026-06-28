@@ -116,6 +116,44 @@ def _build_definition(role: str):
         raise RuntimeError(
             "AZURE_AI_MODEL_DEPLOYMENT must be set before publishing hosted agents"
         )
+
+    # Foundry IQ: ground the incident-analysis agent on the knowledge base via
+    # the MCP toolbox (knowledge_base_retrieve) when a KB + project connection
+    # are configured. This is what lights up real grounding in the *hosted*
+    # backend (the in-app tool covers local/foundry backends).
+    tools = None
+    if (
+        role == "incident_analysis"
+        and settings.knowledge_base_enabled
+        and settings.foundry_iq_mcp_connection
+    ):
+        from azure.ai.projects.models import MCPTool
+
+        mcp_endpoint = (
+            f"{settings.foundry_iq_search_endpoint.rstrip('/')}"
+            f"/knowledgebases/{settings.foundry_iq_knowledge_base}"
+            f"/mcp?api-version=2026-05-01-preview"
+        )
+        tools = [
+            MCPTool(
+                server_label="knowledge-base",
+                server_url=mcp_endpoint,
+                require_approval="never",
+                allowed_tools=["knowledge_base_retrieve"],
+                project_connection_id=settings.foundry_iq_mcp_connection,
+            )
+        ]
+        logger.info(
+            "attaching Foundry IQ MCP tool to incident-analysis agent",
+            extra={"connection": settings.foundry_iq_mcp_connection},
+        )
+
+    if tools:
+        return PromptAgentDefinition(
+            model=settings.azure_ai_model_deployment,
+            instructions=ROLE_INSTRUCTIONS[role],
+            tools=tools,
+        )
     return PromptAgentDefinition(
         model=settings.azure_ai_model_deployment,
         instructions=ROLE_INSTRUCTIONS[role],

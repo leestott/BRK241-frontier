@@ -303,11 +303,20 @@ disabled).
 
 | Env var                          | Purpose                                                        |
 |----------------------------------|----------------------------------------------------------------|
-| `FOUNDRY_WEB_IQ_ENDPOINT`        | HTTPS endpoint accepting `{query, top}` and returning `{results: [...]}` (or a bare list) |
+| `FOUNDRY_IQ_SEARCH_ENDPOINT`     | Azure AI Search endpoint of the real Foundry IQ knowledge base |
+| `FOUNDRY_IQ_KNOWLEDGE_BASE`      | Knowledge base name (default `fibreops-knowledge-base`)        |
+| `FOUNDRY_IQ_SEARCH_API_KEY`      | Local-dev search key (runtime uses managed identity)           |
+| `FOUNDRY_WEB_IQ_ENDPOINT`        | Legacy HTTPS endpoint accepting `{query, top}` returning `{results: [...]}` |
 | `FOUNDRY_WEB_IQ_API_KEY`         | Optional `Ocp-Apim-Subscription-Key` header                    |
-| `FOUNDRY_WORK_IQ_ENDPOINT`       | HTTPS endpoint for enterprise IQ (same shape as Web IQ)        |
+| `FOUNDRY_WORK_IQ_ENDPOINT`       | Legacy HTTPS endpoint for enterprise IQ (same shape as Web IQ) |
 | `FOUNDRY_WORK_IQ_API_KEY`        | Optional API key for Work IQ                                   |
 | `FIBREOPS_FOUNDRY_IQ`            | `0`/`false` disables IQ grounding entirely (default: `1`)      |
+
+> The real **Foundry IQ knowledge base** (Azure AI Search agentic retrieval over
+> the SOPs + topology) is preferred for the enterprise-grounded layer when
+> `FOUNDRY_IQ_SEARCH_ENDPOINT` + `FOUNDRY_IQ_KNOWLEDGE_BASE` are set. See
+> [Foundry IQ knowledge base](#foundry-iq-knowledge-base) for provisioning,
+> retrieval semantics, and RBAC.
 
 ## GitHub Copilot SDK adapter (BRK241 slide 4)
 
@@ -542,13 +551,18 @@ The script grants the App Service's system-assigned managed identity:
 | `Key Vault Secrets User`      | Key Vault            | Read the Voice Live key + optional secrets   |
 | `AcrPull`                     | Container Registry   | Pull image with MI instead of admin creds    |
 | `Cognitive Services User`     | Voice Live account   | Use the Voice Live realtime endpoint         |
+| `Search Index Data Reader`    | Azure AI Search      | Retrieve from the Foundry IQ knowledge base  |
 | `Azure AI Developer`          | Foundry account      | Invoke hosted Prompt Agents + manage threads |
 | `Cognitive Services OpenAI User` | Foundry account   | Call the chat-completions deployment from the agent runtime |
 
 It also grants the **Foundry project** managed identity `AcrPull` on the ACR
-(so a containerised hosted agent can be pulled) and enables the registry's
+(so a containerised hosted agent can be pulled), `Search Index Data Reader` on
+the search service (knowledge base retrieval), and enables the registry's
 ARM-auth policy. Deploying a hosted agent additionally requires the deploying
 user to hold *Azure AI Project Manager* at project scope.
+
+For the **complete** matrix of every identity, role, and scope across the
+solution, see [Required permissions (RBAC)](#required-permissions-rbac) below.
 
 ### Step 7 — Let RBAC propagate, then verify
 
@@ -582,6 +596,53 @@ az webapp restart -g rg-fibreops-demo -n <webapp-name>
 > Foundry roles. Have a tenant admin run the Foundry-scope half of the script
 > against the Foundry account instead. The webapp's `MODE · foundry` badge
 > turns green only after both Foundry roles have propagated.
+
+## Required permissions (RBAC)
+
+The complete matrix of every identity, role, and scope the solution uses. The
+**deploying user/admin** roles are needed once during setup; the **managed
+identity** roles are granted by `scripts/grant-mi-roles.ps1` and used at runtime.
+
+### Deploying user / admin (setup time)
+
+| Role | Scope | Why |
+|------|-------|-----|
+| `Contributor` | Subscription / resource group | Provision all resources via `azd up` / Bicep |
+| `Owner` **or** `User Access Administrator` | Resource group (+ Foundry account) | Create the role assignments in `grant-mi-roles.ps1` |
+| `Azure AI Project Manager` | Foundry **project** | Publish Prompt Agents + deploy the hosted agent |
+| `Search Service Contributor` | Azure AI Search | Create the index / knowledge source / knowledge base (only if provisioning Foundry IQ with Entra auth instead of the admin key) |
+| `Search Index Data Contributor` | Azure AI Search | Upload documents to the index (Entra-auth provisioning) |
+
+### App Service managed identity (runtime — NOC console)
+
+| Role | Scope | Why |
+|------|-------|-----|
+| `Azure Event Hubs Data Owner` | Event Hubs namespace | Publish + consume `fibre-signals` |
+| `Key Vault Secrets User` | Key Vault | Read the Voice Live key + optional secrets |
+| `AcrPull` | Container Registry | Pull the NOC image via MI (after hardening) |
+| `Cognitive Services User` | Voice Live (AI Services) account | Use the Voice Live realtime endpoint |
+| `Search Index Data Reader` | Azure AI Search | Retrieve from the Foundry IQ knowledge base |
+| `Azure AI Developer` | Foundry account | Invoke hosted Prompt Agents + manage threads |
+| `Cognitive Services OpenAI User` | Foundry account | Call the chat-completions model deployment |
+
+### Foundry project managed identity (runtime — hosted agents)
+
+| Role | Scope | Why |
+|------|-------|-----|
+| `AcrPull` | Container Registry | Pull the containerised hosted-agent image |
+| `Search Index Data Reader` | Azure AI Search | Knowledge base retrieval via the MCP toolbox |
+
+### Azure AI Search managed identity
+
+No role assignments are required: the knowledge base uses **minimal** retrieval
+reasoning effort + **extractive** output, so it never calls Azure OpenAI. If you
+upgrade the knowledge base to *low/medium* reasoning effort or add vector
+embeddings, grant the search service MI `Cognitive Services OpenAI User` on the
+Foundry account.
+
+> Registry note: `grant-mi-roles.ps1` also enables the ACR **ARM-auth policy**
+> (`az acr config authentication-as-arm`), required for the Foundry project MI
+> to pull via RBAC.
 
 ### Infra-only deploy (no AZD)
 
@@ -859,6 +920,79 @@ Then open the console and click **Speak status** (one-shot TTS) or **Talk to
 agent** (duplex mic). For the duplex agent conversation set
 `AZURE_VOICE_LIVE_AGENT_ID` to a published Foundry agent; left empty, the mic
 uses direct-model mode against `AZURE_VOICE_LIVE_MODEL`.
+
+## Foundry IQ knowledge base
+
+The `IncidentAnalysisAgent` grounds its reasoning on **Foundry IQ** — a
+knowledge base built on **Azure AI Search agentic retrieval**. The knowledge
+base indexes the FibreOps SOPs ([src/fibreops/data](src/fibreops/data)) and the
+fibre-node topology, and the agent retrieves cited, reranked extracts at
+analysis time via the `knowledge_base_search` tool ([src/fibreops/tools/knowledge.py](src/fibreops/tools/knowledge.py)).
+When no knowledge base is configured it falls back to deterministic Web/Work IQ
+fixtures, so the demo always works offline.
+
+| Piece | Where |
+|-------|-------|
+| Azure AI Search service (`basic`, semantic ranker) | [infra/main.bicep](infra/main.bicep) (`provisionFoundryIq`) |
+| Index + knowledge source + knowledge base | [scripts/provision_foundry_iq.py](scripts/provision_foundry_iq.py) |
+| Retrieval tool (managed-identity auth) | `knowledge_base_search` in [src/fibreops/tools/knowledge.py](src/fibreops/tools/knowledge.py) |
+| RBAC (`Search Index Data Reader`) | [scripts/grant-mi-roles.ps1](scripts/grant-mi-roles.ps1) |
+
+`azd up` provisions the search service and the `postdeploy` hook runs the
+provisioning script (skip with `FIBREOPS_SKIP_FOUNDRY_IQ=true`). To (re)build the
+knowledge base manually:
+
+```powershell
+# Uses the search admin key (or DefaultAzureCredential with Search Service
+# Contributor + Search Index Data Contributor):
+$env:SEARCH_ADMIN_KEY = (az search admin-key show --service-name <search> -g rg-fibreops-demo --query primaryKey -o tsv)
+.\.venv\Scripts\python.exe scripts/provision_foundry_iq.py `
+  --endpoint https://<search>.search.windows.net
+```
+
+Then point the app at it (the App Service MI needs `Search Index Data Reader`,
+granted by `scripts/grant-mi-roles.ps1`):
+
+```powershell
+az webapp config appsettings set -g rg-fibreops-demo -n <webapp> --settings `
+  FOUNDRY_IQ_SEARCH_ENDPOINT=https://<search>.search.windows.net `
+  FOUNDRY_IQ_KNOWLEDGE_BASE=fibreops-knowledge-base
+```
+
+> **Knowledge base config notes (learned the hard way):**
+> - The knowledge base uses **minimal** retrieval reasoning effort + **extractive**
+>   output, so **no Azure OpenAI deployment is required** on the search side.
+> - With minimal effort the retrieval API requires **`intents`** input
+>   (`KnowledgeRetrievalSemanticIntent(search=...)`), **not** chat `messages` —
+>   sending messages returns *"Messages input not supported when 'minimal'
+>   reasoning effort is requested."*
+> - Grounding runs in the in-app agent path (`local`/`foundry` backends). For the
+>   `hosted` backend, the published incident-analysis agent reaches the knowledge
+>   base through a Foundry project connection + MCP toolbox (`knowledge_base_retrieve`).
+
+### Hosted backend: knowledge base over MCP
+
+The `hosted` backend grounds via the **MCP toolbox**: a Foundry project
+connection targets the knowledge base's MCP endpoint and the published
+incident-analysis Prompt Agent calls `knowledge_base_retrieve`.
+
+```powershell
+# 1. Create the project connection (needs Foundry Project Manager on the account):
+.\.venv\Scripts\python.exe scripts/connect_foundry_iq.py `
+  --subscription-id <sub> --foundry-account <account> `
+  --foundry-resource-group <rg> --project-name <project> `
+  --search-endpoint https://<search>.search.windows.net `
+  --knowledge-base fibreops-knowledge-base --connection-name fibreops-kb-mcp
+
+# 2. Republish so incident-analysis gets the MCP tool:
+$env:FOUNDRY_IQ_MCP_CONNECTION = "fibreops-kb-mcp"
+.\.venv\Scripts\python.exe -m fibreops.demo publish
+```
+
+The Foundry project MI needs `Search Index Data Reader`, **and** the search
+service must accept Entra tokens (`az search service update --auth-options
+aadOrApiKey --aad-auth-failure-mode http403`) — otherwise the MCP endpoint
+returns `403` when enumerating tools. `scripts/grant-mi-roles.ps1` does both.
 
 ## See also
 - `docs/DEMO.md` — rehearsal-grade 8-minute stage script with timings, speaker notes, fail-safes, and a kill-switch.
