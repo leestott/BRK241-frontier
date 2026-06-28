@@ -26,6 +26,12 @@
 .PARAMETER FoundryResourceGroup
     Resource group containing the Foundry account. Required.
 
+.PARAMETER FoundryProjectName
+    Name of the Foundry project whose managed identity pulls the hosted-agent
+    image. If omitted, it is derived from the /projects/<name> segment of
+    AZURE_AI_PROJECT_ENDPOINT, or discovered via ARM when the account has a
+    single project. Pass this explicitly when the account hosts several projects.
+
 .EXAMPLE
     pwsh scripts/grant-mi-roles.ps1 `
       -FoundryAccountName my-foundry-account `
@@ -39,7 +45,8 @@ param(
     [string]$ResourceGroup        = "rg-fibreops-demo",
     [string]$AppServiceName       = "",
     [string]$FoundryAccountName   = "",
-    [string]$FoundryResourceGroup = ""
+    [string]$FoundryResourceGroup = "",
+    [string]$FoundryProjectName   = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -124,21 +131,36 @@ if ($foundry -and $registry) {
     # IMPORTANT: the platform pulls the hosted-agent image using the Foundry
     # *project's* managed identity -- which is a DIFFERENT principal from the
     # account's identity. Granting AcrPull to the account MI does NOT fix the
-    # ImageError; the grant must target the project MI. Derive the project name
-    # from the /projects/<name> segment of AZURE_AI_PROJECT_ENDPOINT and read the
-    # project sub-resource's identity via ARM.
-    $foundryProjectName = ""
-    if ($env:AZURE_AI_PROJECT_ENDPOINT -match "/projects/([^/?]+)") {
+    # ImageError; the grant must target the project MI. Resolve the project name
+    # in priority order: explicit -FoundryProjectName, the /projects/<name>
+    # segment of AZURE_AI_PROJECT_ENDPOINT, then discover it via ARM (use the
+    # only project under the account, if unambiguous).
+    $foundryProjectName = $FoundryProjectName
+    if (-not $foundryProjectName -and $env:AZURE_AI_PROJECT_ENDPOINT -match "/projects/([^/?]+)") {
         $foundryProjectName = $matches[1]
     }
     $subId = az account show --query id -o tsv
+    if (-not $foundryProjectName) {
+        $projectsUrl = "https://management.azure.com/subscriptions/$subId/resourceGroups/$FoundryResourceGroup/providers/Microsoft.CognitiveServices/accounts/$FoundryAccountName/projects?api-version=2025-06-01"
+        $projectNames = az rest --method get --url $projectsUrl --query "value[].name" -o tsv 2>$null
+        $projectList = @($projectNames -split "\r?\n" | Where-Object { $_ })
+        if ($projectList.Count -eq 1) {
+            # ARM returns names as '<account>/<project>'; keep the trailing segment.
+            $foundryProjectName = ($projectList[0] -split "/")[-1]
+            Write-Host "  discovered sole project under '$FoundryAccountName': $foundryProjectName" -ForegroundColor DarkGray
+        }
+        elseif ($projectList.Count -gt 1) {
+            Write-Host "  Multiple projects under '$FoundryAccountName'; pass -FoundryProjectName <name> to target the right one:" -ForegroundColor Yellow
+            $projectList | ForEach-Object { Write-Host "    - $(($_ -split '/')[-1])" -ForegroundColor Yellow }
+        }
+    }
     if ($foundryProjectName) {
         $projUrl = "https://management.azure.com/subscriptions/$subId/resourceGroups/$FoundryResourceGroup/providers/Microsoft.CognitiveServices/accounts/$FoundryAccountName/projects/$foundryProjectName?api-version=2025-06-01"
         $foundryPrincipalId = az rest --method get --url $projUrl --query "identity.principalId" -o tsv 2>$null
         Write-Host "  project '$foundryProjectName' MI principalId = $foundryPrincipalId" -ForegroundColor DarkGray
     }
     else {
-        Write-Host "  Could not derive project name from AZURE_AI_PROJECT_ENDPOINT; falling back to the account MI." -ForegroundColor Yellow
+        Write-Host "  Could not resolve a Foundry project name; falling back to the account MI (hosted-agent pulls may still fail)." -ForegroundColor Yellow
         $foundryPrincipalId = az cognitiveservices account show -g $FoundryResourceGroup -n $FoundryAccountName --query identity.principalId -o tsv
     }
     if (-not $foundryPrincipalId) {
@@ -175,7 +197,22 @@ if ($foundry -and $registry) {
         }
     }
     Write-Host "  NOTE: the user running 'deploy-hosted' also needs 'Azure AI Project Manager' at project scope." -ForegroundColor DarkGray
-    Write-Host "  NOTE: the registry's ARM-auth policy must be enabled (az acr config authentication-as-arm show --registry <acr>)." -ForegroundColor DarkGray
+
+    # Foundry MI pulls require the registry to accept ARM-issued (RBAC) tokens.
+    # Enable the ARM-auth policy here so the project MI's AcrPull actually works.
+    $armAuth = az acr config authentication-as-arm show --registry ($registry -split "/")[-1] --query "status" -o tsv 2>$null
+    if ($armAuth -eq "enabled") {
+        Write-Host "  registry ARM-auth policy already enabled." -ForegroundColor DarkGray
+    }
+    else {
+        Write-Host "  Enabling registry ARM-auth policy (required for Foundry MI pulls)..." -ForegroundColor Cyan
+        az acr config authentication-as-arm update --registry ($registry -split "/")[-1] --status enabled --query "status" -o tsv 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  FAILED to enable ARM-auth; run manually: az acr config authentication-as-arm update --registry <acr> --status enabled" -ForegroundColor Red
+        } else {
+            Write-Host "  OK" -ForegroundColor Green
+        }
+    }
 }
 
 Write-Host ""

@@ -99,8 +99,10 @@ def build_upstream_url(settings: Optional[Settings] = None) -> Optional[str]:
         )
         return f"wss://{host}/voice-live/realtime?{qs}"
     else:
-        # Non-agent / direct model mode — plain URL, auth in headers
-        model = getattr(settings, "azure_ai_model_deployment", None) or "gpt-4.1-mini"
+        # Non-agent / direct model mode — plain URL, auth in headers.
+        # Use the Voice Live *managed model name* (e.g. gpt-4o-mini), NOT the
+        # chat-completions deployment name, which Voice Live does not recognise.
+        model = getattr(settings, "azure_voice_live_model", None) or "gpt-4o-mini"
         return f"wss://{host}/voice-live/realtime?api-version={quote(api_version, safe='')}&model={quote(model, safe='')}"
 
 

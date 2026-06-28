@@ -81,14 +81,34 @@ Write-Host "Target image: $image" -ForegroundColor Green
 
 if (-not $SkipBuild) {
     Write-Host "Building x86_64 image in ACR (no local Docker needed)..." -ForegroundColor Cyan
+    # On Windows, `az acr build`'s log streaming can crash with
+    # "UnicodeEncodeError: 'charmap' codec" (cp1252) when the build output
+    # contains Unicode (e.g. pip progress). That is a client-side log-streaming
+    # bug only — the ACR build itself still runs server-side. Force UTF-8 for the
+    # az subprocess and capture logs to a file so a console-encoding crash cannot
+    # fail the deploy; then verify the real outcome via the ACR run status.
+    $prevPyUtf8 = $env:PYTHONUTF8
+    $prevPyEnc  = $env:PYTHONIOENCODING
+    $env:PYTHONUTF8 = '1'
+    $env:PYTHONIOENCODING = 'utf-8'
+    $buildLog = Join-Path ([System.IO.Path]::GetTempPath()) "acr-build-$Tag.log"
     az acr build `
         --registry $RegistryName `
         --platform linux/amd64 `
         --image "$($ImageRepository):$Tag" `
         --file $dockerfile `
-        $repoRoot
-    if ($LASTEXITCODE -ne 0) {
-        throw "az acr build failed."
+        $repoRoot *> $buildLog
+    $buildExit = $LASTEXITCODE
+    $env:PYTHONUTF8 = $prevPyUtf8
+    $env:PYTHONIOENCODING = $prevPyEnc
+
+    # Trust the server-side result over the (possibly crashing) client. Confirm
+    # the tag now exists in the registry before continuing.
+    $pushed = az acr repository show-tags --name $RegistryName --repository $ImageRepository --query "[?@=='$Tag'] | [0]" -o tsv 2>$null
+    if (-not $pushed) {
+        Write-Host "  build log: $buildLog" -ForegroundColor DarkGray
+        Get-Content $buildLog -Tail 20 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+        throw "az acr build did not produce image tag '$Tag' (exit $buildExit). See $buildLog."
     }
     Write-Host "  pushed $image" -ForegroundColor Green
 }

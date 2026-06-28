@@ -118,8 +118,9 @@ def test_speak_status_update_uses_configured_endpoint(
     assert sent["voice"] == "en-GB-SoniaNeural"
     assert sent["incident_id"] == "INC-009"
     assert out["delivery"]["status"] == "sent"
-    # When the endpoint is configured we DO NOT also write the outbox.
-    assert not _voice_path(chdir_state_tmp / "state").exists()
+    # The outbox is always written (the UI reads data-latest-text from it) in
+    # addition to the server-side POST when an endpoint is configured.
+    assert _voice_path(chdir_state_tmp / "state").exists()
 
 
 def test_local_agent_emits_voice_when_enabled(

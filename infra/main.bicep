@@ -39,7 +39,10 @@ param azureVoiceLiveEndpoint string = ''
 param azureVoiceLiveApiKey string = ''
 
 @description('Default voice for one-shot TTS, e.g. en-GB-RyanNeural. Empty = library default.')
-param azureVoiceLiveVoice string = ''
+param azureVoiceLiveVoice string = 'en-GB-RyanNeural'
+
+@description('Voice Live managed model name (e.g. gpt-4o-mini, gpt-realtime, gpt-4.1-mini). NOT an Azure OpenAI deployment name — Voice Live models are fully managed and must not be deployed.')
+param azureVoiceLiveModel string = 'gpt-4o-mini'
 
 @description('Published Foundry agent id used by the duplex "Talk to agent" mic session. Empty disables the mic button.')
 param azureVoiceLiveAgentId string = ''
@@ -237,6 +240,7 @@ resource web 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'AZURE_VOICE_LIVE_ENDPOINT', value: resolvedVoiceLiveEndpoint }
         { name: 'AZURE_VOICE_LIVE_API_KEY', value: hasVoiceLiveKey ? '@Microsoft.KeyVault(VaultName=${kv.name};SecretName=${voiceLiveSecretName})' : '' }
         { name: 'AZURE_VOICE_LIVE_VOICE', value: azureVoiceLiveVoice }
+        { name: 'AZURE_VOICE_LIVE_MODEL', value: azureVoiceLiveModel }
         { name: 'AZURE_VOICE_LIVE_AGENT_ID', value: azureVoiceLiveAgentId }
         { name: 'AZURE_VOICE_LIVE_API_VERSION', value: azureVoiceLiveApiVersion }
       ]

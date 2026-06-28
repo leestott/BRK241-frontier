@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.42.1.51946",
-      "templateHash": "9946325613017392483"
+      "version": "0.43.8.12551",
+      "templateHash": "15350848189411665826"
     }
   },
   "parameters": {
@@ -71,6 +71,73 @@
         "description": "Agent backend resolution: auto | hosted | foundry | local"
       }
     },
+    "azureVoiceLiveEndpoint": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure Voice Live realtime endpoint. Either an https://<region>.api.cognitive.microsoft.com host or a fully-formed wss:// URL. Empty = browser falls back to text-only outbox."
+      }
+    },
+    "azureVoiceLiveApiKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure Voice Live API key (Speech / AI Services resource key). Required when azureVoiceLiveEndpoint is set."
+      }
+    },
+    "azureVoiceLiveVoice": {
+      "type": "string",
+      "defaultValue": "en-GB-RyanNeural",
+      "metadata": {
+        "description": "Default voice for one-shot TTS, e.g. en-GB-RyanNeural. Empty = library default."
+      }
+    },
+    "azureVoiceLiveModel": {
+      "type": "string",
+      "defaultValue": "gpt-4o-mini",
+      "metadata": {
+        "description": "Voice Live managed model name (e.g. gpt-4o-mini, gpt-realtime, gpt-4.1-mini). NOT an Azure OpenAI deployment name — Voice Live models are fully managed and must not be deployed."
+      }
+    },
+    "azureVoiceLiveAgentId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Published Foundry agent id used by the duplex \"Talk to agent\" mic session. Empty disables the mic button."
+      }
+    },
+    "azureVoiceLiveApiVersion": {
+      "type": "string",
+      "defaultValue": "2025-05-01-preview",
+      "metadata": {
+        "description": "Voice Live realtime API version query parameter."
+      }
+    },
+    "provisionVoiceLive": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Provision a Speech / AI Services account in this resource group for Voice Live. Set false to bring your own."
+      }
+    },
+    "voiceLiveLocation": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Override region for the Speech / AI Services account. Empty = same as deployment location. Voice Live preview availability varies by region (e.g. eastus2, swedencentral, westus2)."
+      }
+    },
+    "voiceLiveSku": {
+      "type": "string",
+      "defaultValue": "S0",
+      "allowedValues": [
+        "S0",
+        "F0"
+      ],
+      "metadata": {
+        "description": "SKU for the Speech / AI Services account."
+      }
+    },
     "serviceName": {
       "type": "string",
       "defaultValue": "fibreops-noc",
@@ -88,7 +155,11 @@
     "appiName": "[format('{0}-appi-{1}', parameters('namePrefix'), variables('suffix'))]",
     "acrName": "[toLower(format('{0}acr{1}', parameters('namePrefix'), substring(variables('suffix'), 0, 8)))]",
     "planName": "[format('{0}-plan-{1}', parameters('namePrefix'), variables('suffix'))]",
-    "webName": "[toLower(format('{0}-noc-{1}', parameters('namePrefix'), substring(variables('suffix'), 0, 6)))]"
+    "webName": "[toLower(format('{0}-noc-{1}', parameters('namePrefix'), substring(variables('suffix'), 0, 6)))]",
+    "voiceLiveAccountName": "[toLower(format('{0}-aisvc-{1}', parameters('namePrefix'), substring(variables('suffix'), 0, 6)))]",
+    "voiceLiveRegion": "[if(empty(parameters('voiceLiveLocation')), parameters('location'), parameters('voiceLiveLocation'))]",
+    "voiceLiveSecretName": "AZURE-VOICE-LIVE-API-KEY",
+    "hasVoiceLiveKey": "[or(parameters('provisionVoiceLive'), not(empty(parameters('azureVoiceLiveApiKey'))))]"
   },
   "resources": [
     {
@@ -145,6 +216,25 @@
       ]
     },
     {
+      "condition": "[parameters('provisionVoiceLive')]",
+      "type": "Microsoft.CognitiveServices/accounts",
+      "apiVersion": "2024-10-01",
+      "name": "[variables('voiceLiveAccountName')]",
+      "location": "[variables('voiceLiveRegion')]",
+      "kind": "AIServices",
+      "sku": {
+        "name": "[parameters('voiceLiveSku')]"
+      },
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "customSubDomainName": "[variables('voiceLiveAccountName')]",
+        "publicNetworkAccess": "Enabled",
+        "disableLocalAuth": false
+      }
+    },
+    {
       "type": "Microsoft.KeyVault/vaults",
       "apiVersion": "2024-11-01",
       "name": "[variables('kvName')]",
@@ -160,6 +250,20 @@
         "softDeleteRetentionInDays": 7,
         "publicNetworkAccess": "Enabled"
       }
+    },
+    {
+      "condition": "[variables('hasVoiceLiveKey')]",
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2024-11-01",
+      "name": "[format('{0}/{1}', variables('kvName'), variables('voiceLiveSecretName'))]",
+      "properties": {
+        "value": "[if(not(empty(parameters('azureVoiceLiveApiKey'))), parameters('azureVoiceLiveApiKey'), if(parameters('provisionVoiceLive'), listKeys(resourceId('Microsoft.CognitiveServices/accounts', variables('voiceLiveAccountName')), '2024-10-01').key1, ''))]",
+        "contentType": "Azure Voice Live (Speech) resource key"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', variables('kvName'))]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('voiceLiveAccountName'))]"
+      ]
     },
     {
       "type": "Microsoft.ContainerRegistry/registries",
@@ -210,6 +314,7 @@
           "alwaysOn": true,
           "ftpsState": "Disabled",
           "http20Enabled": true,
+          "webSocketsEnabled": true,
           "minTlsVersion": "1.2",
           "healthCheckPath": "/healthz",
           "acrUseManagedIdentityCreds": false,
@@ -273,6 +378,30 @@
             {
               "name": "KEY_VAULT_NAME",
               "value": "[variables('kvName')]"
+            },
+            {
+              "name": "AZURE_VOICE_LIVE_ENDPOINT",
+              "value": "[if(not(empty(parameters('azureVoiceLiveEndpoint'))), parameters('azureVoiceLiveEndpoint'), if(parameters('provisionVoiceLive'), reference(resourceId('Microsoft.CognitiveServices/accounts', variables('voiceLiveAccountName')), '2024-10-01').endpoint, ''))]"
+            },
+            {
+              "name": "AZURE_VOICE_LIVE_API_KEY",
+              "value": "[if(variables('hasVoiceLiveKey'), format('@Microsoft.KeyVault(VaultName={0};SecretName={1})', variables('kvName'), variables('voiceLiveSecretName')), '')]"
+            },
+            {
+              "name": "AZURE_VOICE_LIVE_VOICE",
+              "value": "[parameters('azureVoiceLiveVoice')]"
+            },
+            {
+              "name": "AZURE_VOICE_LIVE_MODEL",
+              "value": "[parameters('azureVoiceLiveModel')]"
+            },
+            {
+              "name": "AZURE_VOICE_LIVE_AGENT_ID",
+              "value": "[parameters('azureVoiceLiveAgentId')]"
+            },
+            {
+              "name": "AZURE_VOICE_LIVE_API_VERSION",
+              "value": "[parameters('azureVoiceLiveApiVersion')]"
             }
           ]
         }
@@ -283,7 +412,8 @@
         "[resourceId('Microsoft.EventHub/namespaces/eventhubs', variables('ehNamespaceName'), variables('ehName'))]",
         "[resourceId('Microsoft.EventHub/namespaces', variables('ehNamespaceName'))]",
         "[resourceId('Microsoft.KeyVault/vaults', variables('kvName'))]",
-        "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]"
+        "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('voiceLiveAccountName'))]"
       ]
     }
   ],
@@ -347,6 +477,18 @@
     "AZURE_LOG_ANALYTICS_WORKSPACE_ID": {
       "type": "string",
       "value": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('lawName'))]"
+    },
+    "AZURE_VOICE_LIVE_ACCOUNT_NAME": {
+      "type": "string",
+      "value": "[if(parameters('provisionVoiceLive'), variables('voiceLiveAccountName'), '')]"
+    },
+    "AZURE_VOICE_LIVE_ACCOUNT_ID": {
+      "type": "string",
+      "value": "[if(parameters('provisionVoiceLive'), resourceId('Microsoft.CognitiveServices/accounts', variables('voiceLiveAccountName')), '')]"
+    },
+    "AZURE_VOICE_LIVE_ENDPOINT": {
+      "type": "string",
+      "value": "[if(not(empty(parameters('azureVoiceLiveEndpoint'))), parameters('azureVoiceLiveEndpoint'), if(parameters('provisionVoiceLive'), reference(resourceId('Microsoft.CognitiveServices/accounts', variables('voiceLiveAccountName')), '2024-10-01').endpoint, ''))]"
     }
   }
 }

@@ -51,6 +51,16 @@ class Settings(BaseSettings):
     azure_voice_live_endpoint: Optional[str] = Field(default=None, alias="AZURE_VOICE_LIVE_ENDPOINT")
     azure_voice_live_api_key: Optional[str] = Field(default=None, alias="AZURE_VOICE_LIVE_API_KEY")
     azure_voice_live_voice: Optional[str] = Field(default=None, alias="AZURE_VOICE_LIVE_VOICE")
+    # Voice Live generative model. This is a Voice Live *managed model name*
+    # (e.g. ``gpt-4o-mini``, ``gpt-realtime``, ``gpt-4.1-mini``) — NOT an Azure
+    # OpenAI deployment name. Voice Live models are fully managed and must not
+    # be deployed in the AI Services account. Distinct from
+    # ``azure_ai_model_deployment`` (the chat-completions deployment the agents
+    # use). Defaults to ``gpt-4o-mini`` (Voice Live "basic", supports Azure
+    # standard TTS voices).
+    azure_voice_live_model: str = Field(
+        default="gpt-4o-mini", alias="AZURE_VOICE_LIVE_MODEL"
+    )
     # Foundry agent the duplex "Talk to agent" session is bound to. Optional
     # for one-shot TTS; required for duplex mic conversation.
     azure_voice_live_agent_id: Optional[str] = Field(default=None, alias="AZURE_VOICE_LIVE_AGENT_ID")
