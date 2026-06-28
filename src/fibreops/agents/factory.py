@@ -39,6 +39,7 @@ from ..tools import (
     remember,
     speak_status_update,
     update_ticket,
+    knowledge_base_search,
     web_iq_search,
     work_iq_search,
 )
@@ -109,7 +110,15 @@ class LocalAgent:
                         query=f"{p.get('region','')} {p['signal_type']} outage",
                         limit=2,
                     )
-                if "work_iq_search" in self.tools:
+                # Prefer the real Foundry IQ knowledge base (agentic retrieval)
+                # for the enterprise-grounded layer; fall back to Work IQ.
+                if get_settings().knowledge_base_enabled and "knowledge_base_search" in self.tools:
+                    work_hits = await asyncio.to_thread(
+                        self.tools["knowledge_base_search"],
+                        query=f"{p['signal_type']} {p['node_id']} SOP remediation",
+                        limit=2,
+                    )
+                elif "work_iq_search" in self.tools:
                     work_hits = await asyncio.to_thread(
                         self.tools["work_iq_search"],
                         query=f"{p['node_id']} SLA customers",
@@ -389,6 +398,7 @@ def build_incident_analysis_agent(prefer: str | None = None):
             "list_sops_tool": list_sops_tool,
             "recall": recall,
             "remember": remember,
+            "knowledge_base_search": knowledge_base_search,
             "web_iq_search": web_iq_search,
             "work_iq_search": work_iq_search,
         },

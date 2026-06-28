@@ -78,6 +78,18 @@ class Settings(BaseSettings):
     foundry_web_iq_api_key: Optional[str] = Field(default=None, alias="FOUNDRY_WEB_IQ_API_KEY")
     foundry_work_iq_endpoint: Optional[str] = Field(default=None, alias="FOUNDRY_WORK_IQ_ENDPOINT")
     foundry_work_iq_api_key: Optional[str] = Field(default=None, alias="FOUNDRY_WORK_IQ_API_KEY")
+    # Foundry IQ knowledge base (Azure AI Search agentic retrieval). When the
+    # search endpoint + knowledge base name are set, the IncidentAnalysisAgent
+    # grounds on the real knowledge base via :func:`knowledge_base_search`
+    # (managed-identity auth). Falls back to the Web/Work IQ fixtures otherwise.
+    foundry_iq_search_endpoint: Optional[str] = Field(default=None, alias="FOUNDRY_IQ_SEARCH_ENDPOINT")
+    foundry_iq_knowledge_base: Optional[str] = Field(default=None, alias="FOUNDRY_IQ_KNOWLEDGE_BASE")
+    foundry_iq_search_api_key: Optional[str] = Field(default=None, alias="FOUNDRY_IQ_SEARCH_API_KEY")
+    # Foundry project connection name for the knowledge base MCP endpoint. When
+    # set (and the KB is configured), the published incident-analysis Prompt
+    # Agent gets the knowledge_base_retrieve MCP tool so the *hosted* backend
+    # grounds on Foundry IQ too. Created by scripts/connect_foundry_iq.py.
+    foundry_iq_mcp_connection: Optional[str] = Field(default=None, alias="FOUNDRY_IQ_MCP_CONNECTION")
     # When true (default), the IncidentAnalysisAgent enriches its analysis with
     # Web IQ + Work IQ snippets so the demo shows grounded reasoning.
     foundry_iq_enabled: bool = Field(default=True, alias="FIBREOPS_FOUNDRY_IQ")
@@ -172,6 +184,11 @@ class Settings(BaseSettings):
     @property
     def work_iq_enabled(self) -> bool:
         return bool(self.foundry_work_iq_endpoint)
+
+    @property
+    def knowledge_base_enabled(self) -> bool:
+        """True when a real Foundry IQ knowledge base is configured."""
+        return bool(self.foundry_iq_search_endpoint and self.foundry_iq_knowledge_base)
 
     @property
     def foundry_memory_enabled(self) -> bool:

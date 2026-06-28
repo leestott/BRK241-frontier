@@ -53,6 +53,50 @@ if (-not $ProjectEndpoint) {
 $env:AZURE_AI_PROJECT_ENDPOINT = $ProjectEndpoint
 if ($ModelDeployment) { $env:AZURE_AI_MODEL_DEPLOYMENT = $ModelDeployment }
 
+# --- 0. Provision the Foundry IQ knowledge base (Azure AI Search) ---
+# azd output AZURE_SEARCH_SERVICE_NAME / AZURE_SEARCH_ENDPOINT identify the
+# search service stood up by the bicep. Seed the index + knowledge base from the
+# FibreOps SOPs + topology. Skip with FIBREOPS_SKIP_FOUNDRY_IQ=true.
+$searchName = $env:AZURE_SEARCH_SERVICE_NAME
+$searchEndpoint = $env:AZURE_SEARCH_ENDPOINT
+if ($env:FIBREOPS_SKIP_FOUNDRY_IQ -eq 'true') {
+    Write-Host "FIBREOPS_SKIP_FOUNDRY_IQ=true -> skipping Foundry IQ knowledge base provisioning." -ForegroundColor DarkGray
+}
+elseif ($searchName -and $searchEndpoint) {
+    Write-Host "Provisioning the Foundry IQ knowledge base in '$searchName' ..." -ForegroundColor Cyan
+    $adminKey = az search admin-key show --service-name $searchName --resource-group $ResourceGroup --query primaryKey -o tsv 2>$null
+    if ($adminKey) { $env:SEARCH_ADMIN_KEY = $adminKey }
+    & $python "$repoRoot/scripts/provision_foundry_iq.py" --endpoint $searchEndpoint
+    $env:SEARCH_ADMIN_KEY = $null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  Foundry IQ provisioning failed. Re-run scripts/provision_foundry_iq.py --endpoint $searchEndpoint" -ForegroundColor Red
+    }
+    else {
+        Write-Host "  Foundry IQ knowledge base ready." -ForegroundColor Green
+        # Create the project connection to the KB MCP endpoint so the hosted
+        # incident-analysis agent grounds via knowledge_base_retrieve.
+        $kb = $env:FOUNDRY_IQ_KNOWLEDGE_BASE; if (-not $kb) { $kb = "fibreops-knowledge-base" }
+        $conn = $env:FOUNDRY_IQ_MCP_CONNECTION; if (-not $conn) { $conn = "fibreops-kb-mcp" }
+        if ($FoundryAccountName -and $FoundryResourceGroup -and $FoundryProjectName) {
+            & $python "$repoRoot/scripts/connect_foundry_iq.py" `
+                --subscription-id $env:AZURE_SUBSCRIPTION_ID `
+                --foundry-account $FoundryAccountName --foundry-resource-group $FoundryResourceGroup `
+                --project-name $FoundryProjectName --search-endpoint $searchEndpoint `
+                --knowledge-base $kb --connection-name $conn
+            if ($LASTEXITCODE -eq 0) {
+                $env:FOUNDRY_IQ_SEARCH_ENDPOINT = $searchEndpoint
+                $env:FOUNDRY_IQ_KNOWLEDGE_BASE = $kb
+                $env:FOUNDRY_IQ_MCP_CONNECTION = $conn
+            }
+        } else {
+            Write-Host "  Pass -FoundryAccountName/-FoundryResourceGroup/-FoundryProjectName to also create the MCP connection." -ForegroundColor DarkGray
+        }
+    }
+}
+else {
+    Write-Host "No Azure AI Search service found (AZURE_SEARCH_ENDPOINT unset) -> skipping Foundry IQ." -ForegroundColor DarkGray
+}
+
 # --- 1. Publish the three role Prompt Agents (default ON) ---
 if ($env:FIBREOPS_SKIP_PUBLISH -eq 'true') {
     Write-Host "FIBREOPS_SKIP_PUBLISH=true -> skipping Prompt Agent publish." -ForegroundColor DarkGray

@@ -6,6 +6,9 @@ azure-eventhub>=5.15.1
 azure-keyvault-secrets>=4.11.0
 azure-monitor-opentelemetry>=1.8.8
 azure-core>=1.41.0
+# Foundry IQ knowledge base (Azure AI Search agentic retrieval). Beta pin —
+# the knowledge base / knowledge source APIs are preview.
+azure-search-documents>=11.7.0b2
 
 # --- Microsoft Agent Framework (preview) ---
 # Pinned loosely; orchestrator falls back to Foundry SDK if not installed.

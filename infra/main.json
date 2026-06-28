@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "15350848189411665826"
+      "templateHash": "15897414579802278949"
     }
   },
   "parameters": {
@@ -144,6 +144,31 @@
       "metadata": {
         "description": "Tag value AZD uses to map this resource to the named service in azure.yaml."
       }
+    },
+    "provisionFoundryIq": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Provision an Azure AI Search service for the Foundry IQ knowledge base."
+      }
+    },
+    "searchSku": {
+      "type": "string",
+      "defaultValue": "basic",
+      "allowedValues": [
+        "basic",
+        "standard"
+      ],
+      "metadata": {
+        "description": "SKU for the Azure AI Search service backing Foundry IQ."
+      }
+    },
+    "foundryIqKnowledgeBase": {
+      "type": "string",
+      "defaultValue": "fibreops-knowledge-base",
+      "metadata": {
+        "description": "Foundry IQ knowledge base name (created post-deploy by scripts/provision_foundry_iq.py)."
+      }
     }
   },
   "variables": {
@@ -156,10 +181,12 @@
     "acrName": "[toLower(format('{0}acr{1}', parameters('namePrefix'), substring(variables('suffix'), 0, 8)))]",
     "planName": "[format('{0}-plan-{1}', parameters('namePrefix'), variables('suffix'))]",
     "webName": "[toLower(format('{0}-noc-{1}', parameters('namePrefix'), substring(variables('suffix'), 0, 6)))]",
+    "searchName": "[toLower(format('{0}-search-{1}', parameters('namePrefix'), substring(variables('suffix'), 0, 8)))]",
     "voiceLiveAccountName": "[toLower(format('{0}-aisvc-{1}', parameters('namePrefix'), substring(variables('suffix'), 0, 6)))]",
     "voiceLiveRegion": "[if(empty(parameters('voiceLiveLocation')), parameters('location'), parameters('voiceLiveLocation'))]",
     "voiceLiveSecretName": "AZURE-VOICE-LIVE-API-KEY",
-    "hasVoiceLiveKey": "[or(parameters('provisionVoiceLive'), not(empty(parameters('azureVoiceLiveApiKey'))))]"
+    "hasVoiceLiveKey": "[or(parameters('provisionVoiceLive'), not(empty(parameters('azureVoiceLiveApiKey'))))]",
+    "resolvedSearchEndpoint": "[if(parameters('provisionFoundryIq'), format('https://{0}.search.windows.net', variables('searchName')), '')]"
   },
   "resources": [
     {
@@ -294,6 +321,31 @@
       }
     },
     {
+      "condition": "[parameters('provisionFoundryIq')]",
+      "type": "Microsoft.Search/searchServices",
+      "apiVersion": "2024-06-01-preview",
+      "name": "[variables('searchName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "[parameters('searchSku')]"
+      },
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "replicaCount": 1,
+        "partitionCount": 1,
+        "hostingMode": "default",
+        "semanticSearch": "free",
+        "authOptions": {
+          "aadOrApiKey": {
+            "aadAuthFailureMode": "http403"
+          }
+        },
+        "publicNetworkAccess": "Enabled"
+      }
+    },
+    {
       "type": "Microsoft.Web/sites",
       "apiVersion": "2024-04-01",
       "name": "[variables('webName')]",
@@ -402,6 +454,18 @@
             {
               "name": "AZURE_VOICE_LIVE_API_VERSION",
               "value": "[parameters('azureVoiceLiveApiVersion')]"
+            },
+            {
+              "name": "FOUNDRY_IQ_SEARCH_ENDPOINT",
+              "value": "[variables('resolvedSearchEndpoint')]"
+            },
+            {
+              "name": "FOUNDRY_IQ_KNOWLEDGE_BASE",
+              "value": "[if(parameters('provisionFoundryIq'), parameters('foundryIqKnowledgeBase'), '')]"
+            },
+            {
+              "name": "FOUNDRY_IQ_MCP_CONNECTION",
+              "value": "[if(parameters('provisionFoundryIq'), 'fibreops-kb-mcp', '')]"
             }
           ]
         }
@@ -469,6 +533,18 @@
     "KEY_VAULT_NAME": {
       "type": "string",
       "value": "[variables('kvName')]"
+    },
+    "AZURE_SEARCH_SERVICE_NAME": {
+      "type": "string",
+      "value": "[if(parameters('provisionFoundryIq'), variables('searchName'), '')]"
+    },
+    "AZURE_SEARCH_ENDPOINT": {
+      "type": "string",
+      "value": "[variables('resolvedSearchEndpoint')]"
+    },
+    "FOUNDRY_IQ_KNOWLEDGE_BASE": {
+      "type": "string",
+      "value": "[if(parameters('provisionFoundryIq'), parameters('foundryIqKnowledgeBase'), '')]"
     },
     "APPLICATIONINSIGHTS_CONNECTION_STRING": {
       "type": "string",

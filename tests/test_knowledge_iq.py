@@ -15,11 +15,35 @@ from fastapi.testclient import TestClient
 
 import fibreops.ui.app as ui_module
 from fibreops.tools import knowledge as knowledge_module
-from fibreops.tools import web_iq_search, work_iq_search
+from fibreops.tools import knowledge_base_search, web_iq_search, work_iq_search
 
 
 def _iq_path(state: Path) -> Path:
     return state / "iq_lookups.jsonl"
+
+
+def test_knowledge_base_search_falls_back_offline(chdir_state_tmp: Path) -> None:
+    # No FOUNDRY_IQ_SEARCH_ENDPOINT/KB configured -> deterministic fixtures, and
+    # the lookup is still recorded under the 'foundry_iq' source for the UI.
+    from fibreops import config
+
+    config.get_settings.cache_clear()
+    assert config.get_settings().knowledge_base_enabled is False
+    results = knowledge_base_search(query="high_attenuation FN-LDN-001 SOP remediation", limit=2)
+    assert isinstance(results, list) and results
+    record = json.loads(
+        _iq_path(chdir_state_tmp / "state").read_text(encoding="utf-8").splitlines()[-1]
+    )
+    assert record["source"] == "foundry_iq"
+
+
+def test_knowledge_base_enabled_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fibreops import config
+
+    monkeypatch.setenv("FOUNDRY_IQ_SEARCH_ENDPOINT", "https://x.search.windows.net")
+    monkeypatch.setenv("FOUNDRY_IQ_KNOWLEDGE_BASE", "fibreops-knowledge-base")
+    config.get_settings.cache_clear()
+    assert config.get_settings().knowledge_base_enabled is True
 
 
 def test_web_iq_returns_local_fixtures_offline(chdir_state_tmp: Path) -> None:
