@@ -17,24 +17,26 @@ services:
     docker:
       path: src/fibreops/Dockerfile
       context: .
+      # Build the image with an ACR Task instead of a local Docker daemon.
+      # Without this, `azd` requires a running local Docker engine; if none is
+      # available it can silently fall back to a code/zip deploy, leaving the
+      # App Service on the placeholder image (mcr.microsoft.com/k8se/quickstart)
+      # and the site returns an Application Error. remoteBuild makes `azd up`
+      # build + push fibreops-noc to ACR and point the web app at it every time.
+      remoteBuild: true
 
-# Optional: deploy the containerised hosted agent to Foundry Agent Service as
-# part of `azd up`. There is no native azd host type for a Foundry hosted-agent
-# version, so this hook runs the supported path (az acr build + the
-# azure-ai-projects SDK) via scripts/deploy-hosted-agent.ps1. It is OFF by
-# default — set `azd env set FIBREOPS_DEPLOY_HOSTED true` to enable it — and uses
-# continueOnError so a missing Foundry RBAC grant never fails the web-app deploy.
+# Finish the COMPLETE solution after the NOC console image is deployed.
+# `azd up` provisions infra (incl. the Voice Live AI Services account) and the
+# NOC console; this hook then (1) publishes the three role Prompt Agents the
+# default `hosted` backend binds to — required for the console to produce runs —
+# and (2) optionally deploys the containerised hosted agent. Logic lives in
+# scripts/postdeploy.ps1. continueOnError keeps a Foundry RBAC gap from failing
+# the web-app deploy.
+#   - Publish runs by default; disable with `azd env set FIBREOPS_SKIP_PUBLISH true`.
+#   - Hosted agent is OFF by default; enable with `azd env set FIBREOPS_DEPLOY_HOSTED true`.
 hooks:
   postdeploy:
     shell: pwsh
     continueOnError: true
     interactive: true
-    run: |
-      if ($env:FIBREOPS_DEPLOY_HOSTED -eq 'true') {
-        Write-Host 'FIBREOPS_DEPLOY_HOSTED=true -> deploying hosted agent to Foundry Agent Service...' -ForegroundColor Cyan
-        ./scripts/deploy-hosted-agent.ps1 `
-          -RegistryName  $env:AZURE_CONTAINER_REGISTRY_NAME `
-          -ResourceGroup $env:AZURE_RESOURCE_GROUP
-      } else {
-        Write-Host 'Skipping hosted-agent deploy. Run `azd env set FIBREOPS_DEPLOY_HOSTED true` to deploy it during azd up, or run scripts/deploy-hosted-agent.ps1 manually.' -ForegroundColor DarkGray
-      }
+    run: ./scripts/postdeploy.ps1

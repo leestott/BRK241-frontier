@@ -442,46 +442,96 @@ docs/
 
 ## Deploy to Azure
 
-The repository ships a complete `azd` (Azure Developer CLI) template that
-provisions everything the demo needs on **Azure App Service for Linux
-Containers** plus a private **Azure Container Registry**, **Event Hub**,
-**Key Vault**, **Log Analytics**, and **Application Insights**.
+The repository ships a complete `azd` (Azure Developer CLI) template. A single
+`azd up` provisions all infrastructure and deploys the whole solution:
+**Azure App Service for Linux Containers** (NOC console), a private **Azure
+Container Registry**, **Event Hub**, **Key Vault**, **Log Analytics**,
+**Application Insights**, the **Azure AI Services (Voice Live)** account, the
+three role **Prompt Agents**, and (optionally) the containerised **hosted
+agent**.
+
+| Component | How it's deployed |
+|-----------|-------------------|
+| Infra (App Service, ACR, Event Hub, Key Vault, Log Analytics, App Insights, **Voice Live** AI Services account) | `infra/main.bicep` |
+| NOC console container image | Built in ACR via `remoteBuild: true` (no local Docker) and deployed to App Service |
+| Three role **Prompt Agents** (`fibreops-incident-analysis`, `-netops-coordinator`, `-field-dispatch`) | `postdeploy` hook → `scripts/postdeploy.ps1` → `fibreops.demo publish` (the default `hosted` backend binds to these) |
+| Containerised **hosted agent** (single `/responses` agent) | `postdeploy` hook when `FIBREOPS_DEPLOY_HOSTED=true` |
+
+Follow the steps below in order. Commands are PowerShell 7+ on Windows; the same
+`azd`/`az` commands work on macOS/Linux (swap `.\.venv\Scripts\python.exe` for
+`.venv/bin/python`).
+
+### Step 1 — Install prerequisites
+
+- **Azure CLI** (`az`) and **Azure Developer CLI** (`azd` ≥ 1.10)
+- **PowerShell 7+** (`pwsh`) — required by the deploy scripts
+- A **Foundry project** with a deployed chat model (e.g. `gpt-4.1-mini`,
+  `gpt-4o-mini`, `gpt-5.4-mini`)
+- **Docker is NOT required** — images build in ACR
+
+You also need rights to deploy resources in the target subscription, and — for
+Step 5 — an **Owner** / **User Access Administrator** (yourself or an admin).
+
+### Step 2 — Create the local Python environment
+
+The `postdeploy` hook calls the `fibreops` CLI to publish the agents, so install
+the package locally first:
 
 ```powershell
-# 0. Prereqs: Azure CLI, azd >= 1.10, Docker (only needed for local image build),
-#    a Foundry project with a deployed model. The default in this repo is
-#    `gpt-4.1-mini` because that is what the demo Foundry account ships with;
-#    any chat-completions deployment (gpt-4o-mini, gpt-4o, gpt-4.1) works —
-#    just match AZURE_AI_MODEL_DEPLOYMENT to the deployment name in your account.
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -e . --no-deps
+```
 
+### Step 3 — Sign in and create an azd environment
+
+```powershell
+az login
 azd auth login
 azd env new fibreops-demo
+```
 
-# Supply the Foundry endpoint + model deployment name (azd will prompt or
-# read them from .env):
+### Step 4 — Configure the deployment
+
+```powershell
+# Foundry project endpoint (…/api/projects/<project>) and the model deployment name:
 azd env set AZURE_AI_PROJECT_ENDPOINT  "https://<account>.services.ai.azure.com/api/projects/<project>"
 azd env set AZURE_AI_MODEL_DEPLOYMENT  "gpt-4.1-mini"
-azd env set AZURE_LOCATION             "swedencentral"   # any AppService + ACR region
+azd env set AZURE_LOCATION             "swedencentral"   # any App Service + ACR region
 
+# Optional: also deploy the containerised hosted agent during azd up
+azd env set FIBREOPS_DEPLOY_HOSTED     true
+```
+
+> Tip: find your project endpoint with
+> `az cognitiveservices account show -n <account> -g <rg> --query properties.endpoint`
+> and re-shape it to `https://<account>.services.ai.azure.com/api/projects/<project>`.
+
+### Step 5 — Deploy
+
+```powershell
 azd up
 ```
 
-`azd up` provisions the resource group, builds the image via `az acr build`,
-pushes it to the private registry, and brings up the FastAPI app on App
-Service. The NOC console is live at the URL printed at the end.
+This provisions the resource group, builds the NOC image in ACR, deploys the
+App Service, then runs the `postdeploy` hook to publish the three Prompt Agents
+(and the hosted agent if `FIBREOPS_DEPLOY_HOSTED=true`). The NOC console URL is
+printed at the end. Hook toggles: `FIBREOPS_SKIP_PUBLISH=true` skips the Prompt
+Agent publish (e.g. when using `FIBREOPS_AGENT_BACKEND=foundry`/`local`).
 
-### Post-deploy: grant the managed identity its workload roles
+### Step 6 — Grant the managed-identity roles (required)
 
-The Bicep template **does not** create role assignments because most
-deployers only have `Contributor` (not `Owner` / `User Access Administrator`)
-on the subscription. A subscription `Owner` runs this script **once**
-after `azd up`:
+The Bicep does **not** create role assignments because most deployers only have
+`Contributor`. Until these roles exist, the App Service MI cannot call Foundry
+or Voice Live at runtime — injecting a signal returns `500` and the voice panel
+stays offline. An **Owner** / **User Access Administrator** runs this **once**:
 
 ```powershell
 pwsh scripts/grant-mi-roles.ps1 `
   -ResourceGroup        rg-fibreops-demo `
   -FoundryAccountName   <your-foundry-account> `
-  -FoundryResourceGroup <rg-that-holds-foundry>
+  -FoundryResourceGroup <rg-that-holds-foundry> `
+  -FoundryProjectName   <your-foundry-project>   # optional; auto-discovered if omitted
 ```
 
 The script grants the App Service's system-assigned managed identity:
@@ -489,19 +539,36 @@ The script grants the App Service's system-assigned managed identity:
 | Role                          | Scope                | Why                                          |
 |-------------------------------|----------------------|----------------------------------------------|
 | `Azure Event Hubs Data Owner` | Event Hubs namespace | Publish + consume `fibre-signals`            |
-| `Key Vault Secrets User`      | Key Vault            | Read optional secrets (e.g. Teams webhook)   |
+| `Key Vault Secrets User`      | Key Vault            | Read the Voice Live key + optional secrets   |
 | `AcrPull`                     | Container Registry   | Pull image with MI instead of admin creds    |
+| `Cognitive Services User`     | Voice Live account   | Use the Voice Live realtime endpoint         |
 | `Azure AI Developer`          | Foundry account      | Invoke hosted Prompt Agents + manage threads |
 | `Cognitive Services OpenAI User` | Foundry account   | Call the chat-completions deployment from the agent runtime |
 
-When `-FoundryAccountName` is supplied, the script **also** grants the Foundry
-project's managed identity `AcrPull` on the registry so a **containerised
-hosted agent** can be pulled from ACR (see below). Deploying a hosted agent
-additionally requires the deploying user to hold *Azure AI Project Manager* at
-project scope.
+It also grants the **Foundry project** managed identity `AcrPull` on the ACR
+(so a containerised hosted agent can be pulled) and enables the registry's
+ARM-auth policy. Deploying a hosted agent additionally requires the deploying
+user to hold *Azure AI Project Manager* at project scope.
 
-Wait 2–5 minutes for RBAC to propagate, then harden the App Service to
-pull via managed identity and disable ACR admin:
+### Step 7 — Let RBAC propagate, then verify
+
+Wait **2–5 minutes** for role assignments to propagate, then restart and test:
+
+```powershell
+az webapp restart -g rg-fibreops-demo -n <webapp-name>
+
+# Health + an end-to-end agent run (expect 200 for both):
+curl "https://<webapp>/healthz"
+curl -Method POST "https://<webapp>/actions/inject?count=1&critical=true"
+```
+
+Open the NOC console URL and click **Simulate** to stream live runs through the
+analyse → coordinate → dispatch pipeline.
+
+### Step 8 (optional) — Harden registry access
+
+Switch the App Service to pull via managed identity and disable the ACR admin
+user:
 
 ```powershell
 az webapp config set -g rg-fibreops-demo -n <webapp-name> `
@@ -529,7 +596,8 @@ az deployment group create `
 ```
 
 This provisions infra only — you still need to build + push the container
-image to the created ACR and configure the App Service to point at it.
+image to the created ACR, point the App Service at it, publish the agents
+(`fibreops.demo publish`), and grant the MI roles (Step 6).
 Most users should prefer `azd up`.
 
 ### Deploy the containerised hosted agent
@@ -604,6 +672,193 @@ only called on the first request):
 | `FOUNDRY_MEMORY_STORE_NAME` | Attach `FoundryMemoryProvider` procedural memory (else local SQLite) |
 | `FIBREOPS_FOUNDRY_TOOLBOX` | `1` lights up Foundry Toolbox tools (e.g. `web_search`) on the agents |
 | `FIBREOPS_FOUNDRY_EVALS` | `1` runs Foundry cloud Evaluators in the optimiser alongside the rubric |
+
+### Deployment troubleshooting (lessons learned)
+
+Real-world snags hit during an end-to-end `azd up` + hosted-agent deploy, and
+how to get past them. Work through them in order.
+
+**1. Local env — `requirements.txt` OpenTelemetry conflict.**
+`azure-monitor-opentelemetry` pins `opentelemetry-sdk==1.40`, so the
+`opentelemetry-*` lines are pinned to `>=1.40` (not `>=1.42`). If you bump them,
+keep them compatible with whatever `azure-monitor-opentelemetry` resolves or
+`pip install -r requirements.txt` fails with `ResolutionImpossible`.
+
+**2. Local env — tests can't import `fibreops`.**
+The package lives under `src/`. After creating a venv, install it editable so
+`pytest` and the `python -m fibreops.demo` CLI resolve:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e . --no-deps
+```
+
+**3. `azd up` — `unable to find a resource tagged with 'azd-service-name: fibreops-noc'`.**
+Provisioning succeeds but the *publish* step occasionally loses the race to
+discover the freshly tagged App Service. The web app **is** tagged correctly —
+just re-run the deploy step (no re-provision needed):
+
+```powershell
+azd deploy fibreops-noc
+```
+
+**4. Hosted agent — `az acr build` crashes on Windows with `UnicodeEncodeError: 'charmap' codec`.**
+This is a Windows-console (cp1252) bug in the Azure CLI's build-log streaming
+(colorama writing pip's Unicode output), **not** a build failure. The image
+builds fine server-side. `PYTHONIOENCODING`/`chcp 65001` do **not** fix it
+because colorama writes to the console handle directly. Two reliable options:
+
+- Confirm the build actually succeeded and reuse the image (recommended):
+
+  ```powershell
+  az acr task list-runs -r <acr-name> --top 5 -o table          # look for Succeeded
+  az acr repository show-tags -n <acr-name> --repository fibreops-outage-response -o tsv
+  # then register the already-built image directly:
+  $env:AZURE_AI_PROJECT_ENDPOINT = "https://<account>.services.ai.azure.com/api/projects/<project>"
+  $env:AZURE_AI_MODEL_DEPLOYMENT = "gpt-5.4-mini"
+  .\.venv\Scripts\python.exe -m fibreops.demo deploy-hosted --image <acr>.azurecr.io/fibreops-outage-response:<tag>
+  ```
+
+- Or run the build from WSL/Linux/Cloud Shell where the console encoding bug
+  does not occur.
+
+**5. Hosted agent — `AZURE_AI_PROJECT_ENDPOINT is not set — cannot deploy`.**
+`deploy-hosted` reads config from **process environment variables**; `azd env`
+values are not auto-exported into your shell. Export `AZURE_AI_PROJECT_ENDPOINT`
+and `AZURE_AI_MODEL_DEPLOYMENT` before running it (see the snippet above), or
+read them from `azd env get-values`.
+
+**6. Hosted agent — version status ends in `FAILED` (image pull denied).**
+The agent version can't pull the image until the **Foundry _project_ managed
+identity** (not the account MI) has `AcrPull` on the ACR **and** the registry
+has ARM-based auth enabled. `scripts/grant-mi-roles.ps1` may print
+`Could not derive project name … falling back to the account MI` — in that case
+grant the project MI explicitly:
+
+```powershell
+# Get the PROJECT MI principalId (note: different from the account MI):
+az rest --method get `
+  --url "https://management.azure.com/subscriptions/<sub>/resourceGroups/<foundry-rg>/providers/Microsoft.CognitiveServices/accounts/<foundry-account>/projects/<project>?api-version=2025-04-01-preview" `
+  --query identity.principalId -o tsv
+
+# Grant it AcrPull on the ACR:
+az role assignment create --assignee-object-id <project-mi-principalId> `
+  --assignee-principal-type ServicePrincipal --role AcrPull `
+  --scope "/subscriptions/<sub>/resourceGroups/<fibreops-rg>/providers/Microsoft.ContainerRegistry/registries/<acr>"
+
+# Enable ARM-based auth on the registry (required for Foundry MI pulls):
+az acr config authentication-as-arm update --registry <acr> --status enabled
+```
+
+Allow 2–5 minutes for RBAC to propagate, then re-run `deploy-hosted`; it
+registers a **new version** that should reach `ACTIVE`. The deploying *user*
+also needs **Azure AI Project Manager** at project scope.
+
+**7. `grant-mi-roles.ps1` — `pwsh` not recognised.**
+The script needs PowerShell 7+. If you're already in a `pwsh` session, invoke
+it directly (`& ./scripts/grant-mi-roles.ps1 …`) rather than spawning a nested
+`pwsh`.
+
+**8. NOC console shows `:( Application Error` after `azd up`.**
+Symptom: the site returns an Application Error and the container log shows
+`didn't respond to HTTP pings on port: 8800` while running
+`DOCKER|mcr.microsoft.com/k8se/quickstart:latest`. That means the App Service
+is still on the **placeholder** image — the `fibreops-noc` image was never
+pushed (e.g. `azd` did a code/zip deploy because local Docker wasn't available,
+so the container image was never built). Confirm and fix by building the image
+in ACR and pointing the web app at it:
+
+```powershell
+# Is the NOC image missing? (only 'fibreops-outage-response' present => yes)
+az acr repository list -n <acr-name> -o tsv
+
+# Build the NOC console image server-side (no local Docker; ignore the cp1252
+# client crash from issue #4 — the build still succeeds):
+$tag = (Get-Date -AsUTC -Format "yyyyMMddHHmmss")
+az acr build --registry <acr-name> --platform linux/amd64 `
+  --image "fibreops-noc:$tag" --file src/fibreops/Dockerfile .
+az acr task list-runs -r <acr-name> --top 1 -o table       # wait for Succeeded
+
+# Point the App Service at the real image and restart:
+az webapp config container set -g rg-fibreops-demo -n <webapp-name> `
+  --container-image-name "<acr-name>.azurecr.io/fibreops-noc:$tag" `
+  --container-registry-url "https://<acr-name>.azurecr.io"
+az webapp restart -g rg-fibreops-demo -n <webapp-name>
+```
+
+The app listens on port `8800` (matching `WEBSITES_PORT`); allow ~60–90s for
+container warmup, then check `https://<webapp>/healthz` returns `200`.
+
+**9. NOC console loads but "no events happen" / injecting a signal returns `500`.**
+The default agent backend is `hosted` (`FIBREOPS_AGENT_BACKEND=hosted`), which
+binds to three per-role **Prompt Agents** in your Foundry project
+(`fibreops-incident-analysis`, `fibreops-netops-coordinator`,
+`fibreops-field-dispatch`). These are **not** created by `azd up` — publish them
+once against the target project, then restart the web app:
+
+```powershell
+$env:AZURE_AI_PROJECT_ENDPOINT = "https://<account>.services.ai.azure.com/api/projects/<project>"
+$env:AZURE_AI_MODEL_DEPLOYMENT = "gpt-5.4-mini"
+.\.venv\Scripts\python.exe -m fibreops.demo publish     # creates the 3 Prompt Agents (version 1)
+az webapp restart -g rg-fibreops-demo -n <webapp-name>
+```
+
+The App Service managed identity also needs **Azure AI Developer** +
+**Cognitive Services OpenAI User** on the Foundry account
+(`scripts/grant-mi-roles.ps1` grants these). Verify end-to-end with:
+
+```powershell
+curl -Method POST "https://<webapp>/actions/inject?count=1&critical=true"   # expect 200
+```
+
+Note this is distinct from the **containerised hosted agent**
+(`fibreops.demo deploy-hosted`) — that is the single `/responses` agent, while
+`publish` creates the three role agents the NOC console orchestrates. Don't want
+to publish? Set `FIBREOPS_AGENT_BACKEND=foundry` (resolves prompts locally
+against the model deployment) or `local` (fully deterministic, no Foundry).
+
+**10. Voice Live: "Speak status" / "Talk to agent" do nothing.**
+Symptom: the buttons appear active and `GET /api/voice/session` returns
+`{"enabled": true, …}`, but no audio plays and the mic never connects. The
+server-side proxy (`/ws/voice`) is failing to open the upstream Voice Live
+WebSocket. The most common cause is an **invalid `model` value**.
+
+Key facts learned the hard way:
+
+- **Voice Live models are fully managed — do NOT deploy them.** Unlike the
+  chat-completions model the agents use, you must **not** create a model
+  deployment in the AI Services account for Voice Live. The account having
+  *zero* deployments is correct.
+- **The `model` parameter must be a Voice Live *managed model name*, not your
+  Azure OpenAI deployment name.** Valid values include `gpt-4o-mini`,
+  `gpt-4o`, `gpt-4.1-mini`, `gpt-4.1`, `gpt-realtime`, `gpt-realtime-mini`,
+  `gpt-5`, `gpt-5-mini`. Passing a deployment name like `gpt-5.4-mini` (or any
+  name Voice Live doesn't publish) makes the upstream connection fail silently.
+  This is configured via **`AZURE_VOICE_LIVE_MODEL`** (default `gpt-4o-mini`);
+  it is deliberately separate from `AZURE_AI_MODEL_DEPLOYMENT`.
+- **The App Service managed identity needs `Cognitive Services User` on the
+  Voice Live account** (granted by `scripts/grant-mi-roles.ps1`). The proxy
+  authenticates with the MI's Entra token; without this role the WebSocket is
+  rejected. `AZURE_VOICE_LIVE_API_KEY` (a Key Vault reference) is only a local-
+  dev fallback — runtime uses the MI token.
+- **Region must support Voice Live** (e.g. `swedencentral`, `eastus2`). See
+  [Azure Speech service regions](https://learn.microsoft.com/azure/ai-services/speech-service/regions?tabs=voice-live#regions).
+
+Fix / verify:
+
+```powershell
+# Point the app at a valid Voice Live model (no model deployment required):
+az webapp config appsettings set -g rg-fibreops-demo -n <webapp-name> `
+  --settings AZURE_VOICE_LIVE_MODEL=gpt-4o-mini
+az webapp restart -g rg-fibreops-demo -n <webapp-name>
+
+# Confirm the session descriptor is enabled:
+curl "https://<webapp>/api/voice/session"   # -> {"enabled":true,"ws_path":"/ws/voice",...}
+```
+
+Then open the console and click **Speak status** (one-shot TTS) or **Talk to
+agent** (duplex mic). For the duplex agent conversation set
+`AZURE_VOICE_LIVE_AGENT_ID` to a published Foundry agent; left empty, the mic
+uses direct-model mode against `AZURE_VOICE_LIVE_MODEL`.
 
 ## See also
 - `docs/DEMO.md` — rehearsal-grade 8-minute stage script with timings, speaker notes, fail-safes, and a kill-switch.

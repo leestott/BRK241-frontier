@@ -38,30 +38,41 @@ def test_build_upstream_url_unconfigured() -> None:
 
 
 def test_build_upstream_url_appends_realtime_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Agent mode: the upstream URL embeds a bearer token, so stub the token.
+    monkeypatch.setattr("fibreops.voice_live._get_bearer_token", lambda: "tok")
     _reload_settings(
         monkeypatch,
         AZURE_VOICE_LIVE_ENDPOINT="https://eastus.api.cognitive.microsoft.com",
         AZURE_VOICE_LIVE_AGENT_ID="agent-123",
+        AZURE_VOICE_LIVE_API_VERSION="2025-05-01-preview",
     )
     url = build_upstream_url()
     assert url is not None
-    assert url.startswith("wss://eastus.api.cognitive.microsoft.com/voicelive/realtime?")
+    assert url.startswith("wss://eastus.api.cognitive.microsoft.com/voice-live/realtime?")
     assert "api-version=2025-05-01-preview" in url
-    assert "agent-id=agent-123" in url
+    assert "agent-name=agent-123" in url
+    assert "authorization=Bearer+tok" in url
 
 
-def test_build_upstream_url_preserves_existing_path(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_upstream_url_normalises_to_host_and_realtime_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The proxy extracts the bare host and always targets /voice-live/realtime,
+    # in direct-model mode (no agent id) with the Voice Live managed model name.
     _reload_settings(
         monkeypatch,
         AZURE_VOICE_LIVE_ENDPOINT="wss://example.com/voicelive/realtime?foo=bar",
+        AZURE_VOICE_LIVE_MODEL="gpt-4o-mini",
     )
     url = build_upstream_url()
     assert url is not None
-    assert url.startswith("wss://example.com/voicelive/realtime?foo=bar&")
+    assert url.startswith("wss://example.com/voice-live/realtime?")
     assert "api-version=" in url
+    assert "model=gpt-4o-mini" in url
 
 
 def test_build_upstream_headers_includes_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Runtime prefers the managed-identity bearer token; the api-key header is a
+    # local-dev fallback only used when no token is available.
+    monkeypatch.setattr("fibreops.voice_live._get_bearer_token", lambda: None)
     _reload_settings(
         monkeypatch,
         AZURE_VOICE_LIVE_ENDPOINT="https://example.com",
@@ -88,7 +99,8 @@ def test_session_descriptor_enabled_one_shot(monkeypatch: pytest.MonkeyPatch) ->
     assert desc["enabled"] is True
     assert desc["ws_path"] == "/ws/voice"
     assert desc["voice"] == "en-GB-RyanNeural"
-    assert desc["duplex_enabled"] is False
+    # Duplex mic works in direct-model mode (no agent id required).
+    assert desc["duplex_enabled"] is True
 
 
 def test_session_descriptor_duplex_when_agent_id_set(monkeypatch: pytest.MonkeyPatch) -> None:

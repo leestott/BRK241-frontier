@@ -5,7 +5,10 @@ __pycache__/
 .env.local
 *.egg-info/
 build/
-dist/
+# Python build output at the repo root only — anchored so it does NOT match the
+# source package src/fibreops/dist/ (the M365 Copilot package builder). The
+# `publish-m365` command's default output dir (dist/m365) stays ignored.
+/dist/
 .pytest_cache/
 .coverage
 .azure/

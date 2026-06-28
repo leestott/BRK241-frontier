@@ -41,7 +41,10 @@ def test_extract_text_none_returns_empty_string():
 def test_parse_analysis_json_extracts_object_from_chatty_response():
     text = 'Sure! Here you go: {"severity":"high","summary":"x"} — let me know.'
     out = _parse_analysis_json(text)
-    assert out == {"severity": "high", "summary": "x"}
+    # raw_decode extracts the first JSON object from the chatty text; the result
+    # is then normalised to the full analysis schema, so assert the key fields.
+    assert out["severity"] == "high"
+    assert out["summary"] == "x"
 
 
 def test_parse_analysis_json_raises_when_no_object():
