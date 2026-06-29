@@ -22,7 +22,7 @@ azure-ai-agentserver-responses; python_version>="3.10"
 
 # --- Teams integration ---
 pymsteams>=0.2.2
-httpx>=0.27.2
+httpx>=0.28.1
 
 # --- Voice Live realtime upstream client ---
 websockets>=12.0
