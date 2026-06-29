@@ -32,9 +32,9 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 
 # --- OpenTelemetry ---
-opentelemetry-api>=1.40
-opentelemetry-sdk>=1.40
-opentelemetry-instrumentation-httpx>=0.61b0
+opentelemetry-api==1.40
+opentelemetry-sdk==1.40
+opentelemetry-instrumentation-httpx==0.61b0
 
 # --- Demo UX & utils ---
 rich>=13.9.2
