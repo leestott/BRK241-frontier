@@ -34,6 +34,12 @@ def test_sanitise_decision_keeps_clean_text():
     assert _sanitise_decision("HANDOFF:DISPATCH auto-dispatch", "DISPATCH") == "HANDOFF:DISPATCH auto-dispatch"
 
 
+def test_sanitise_decision_drops_punctuation_only_residue():
+    # Live sample ended with `北京赛车如何=""` which previously left a stray `""`.
+    raw = " to=create_ticket  \u5317\u4eac\u8d5b\u8f66\u5982\u4f55=\"\"  "
+    assert _sanitise_decision(raw, "MONITOR") == "MONITOR"
+
+
 def test_extract_text_falls_back_to_content_attr():
     assert _extract_text(_Resp(text=None, content="world")) == "world"
 

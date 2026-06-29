@@ -118,6 +118,10 @@ def _sanitise_decision(coord_text: str, decision_label: str) -> str:
     head = _NON_DECISION_RE.sub(" ", head)
     head = re.sub(r"[?=]{1,}", " ", head)
     head = re.sub(r"\s+", " ", head).strip()
+    if not payload and not re.search(r"[A-Za-z0-9]", head):
+        # Only punctuation/quote residue survived (e.g. a stray `""`); the text
+        # carried no real decision, so use the derived label instead.
+        return decision_label
     cleaned = (f"{head} {payload}".strip()) if payload else head
     return cleaned or decision_label
 
