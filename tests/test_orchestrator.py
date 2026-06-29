@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from fibreops.orchestrator import _extract_text, _parse_analysis_json
+from fibreops.orchestrator import _extract_text, _parse_analysis_json, _sanitise_decision
 
 
 class _Resp:
@@ -18,6 +18,20 @@ class _Resp:
 
 def test_extract_text_from_text_attr():
     assert _extract_text(_Resp(text="hello")) == "hello"
+
+
+def test_sanitise_decision_strips_routing_and_spam():
+    garbled = " to=create_ticket \u3000\u8001\u53f8\u673a to=create_ticket  \u5f69\u795e\u4e89\u9738? "
+    assert _sanitise_decision(garbled, "DISPATCH") == "DISPATCH"
+
+
+def test_sanitise_decision_preserves_json_payload():
+    raw = ' to=create_ticket  \u5927\u5feb\u4e09={"severity":"high","title":"x"} '
+    assert _sanitise_decision(raw, "DISPATCH") == '{"severity":"high","title":"x"}'
+
+
+def test_sanitise_decision_keeps_clean_text():
+    assert _sanitise_decision("HANDOFF:DISPATCH auto-dispatch", "DISPATCH") == "HANDOFF:DISPATCH auto-dispatch"
 
 
 def test_extract_text_falls_back_to_content_attr():
