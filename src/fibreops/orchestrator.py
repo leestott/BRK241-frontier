@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -92,6 +93,33 @@ def _extract_text(response: Any) -> str:
             if parts:
                 return "\n".join(parts)
     return str(response)
+
+
+# Coordinator/tool-call routing tokens and CJK "spam" the small hosted model
+# sometimes emits instead of a clean handoff. These leak straight into the run
+# record's `decision` field and the NOC console, so strip them before storing.
+_ROUTING_TOKEN_RE = re.compile(r"\bto=\s*\w+", re.IGNORECASE)
+_NON_DECISION_RE = re.compile(r"[^\x09\x0a\x0d\x20-\x7e]+")
+
+
+def _sanitise_decision(coord_text: str, decision_label: str) -> str:
+    """Reduce raw coordinator output to a clean, human-readable decision.
+
+    Drops tool-call routing tokens (``to=create_ticket``) and non-printable /
+    hallucinated characters. Falls back to the derived label when nothing
+    intelligible survives.
+    """
+    text = coord_text or ""
+    # Preserve any structured JSON payload the model produced verbatim.
+    brace = text.find("{")
+    payload = text[brace:] if brace != -1 else ""
+    head = text[:brace] if brace != -1 else text
+    head = _ROUTING_TOKEN_RE.sub(" ", head)
+    head = _NON_DECISION_RE.sub(" ", head)
+    head = re.sub(r"[?=]{1,}", " ", head)
+    head = re.sub(r"\s+", " ", head).strip()
+    cleaned = (f"{head} {payload}".strip()) if payload else head
+    return cleaned or decision_label
 
 
 def _parse_analysis_json(text: str) -> dict[str, Any]:
@@ -290,12 +318,13 @@ async def handle_signal(signal: TelemetrySignal) -> dict[str, Any]:
                     )
                 except Exception as exc:
                     logger.warning("Orchestrator D365/Teams fallback failed: %s", exc)
-            record["steps"].append(
-                {"agent": "NetOpsCoordinatorAgent", "decision": coord_text, "ticket": ticket}
-            )
             decision_label = "DISPATCH" if "HANDOFF:DISPATCH" in coord_text else "MONITOR"
+            clean_decision = _sanitise_decision(coord_text, decision_label)
+            record["steps"].append(
+                {"agent": "NetOpsCoordinatorAgent", "decision": clean_decision, "ticket": ticket}
+            )
             span.set_attribute("decision", decision_label)
-            span.set_attribute("coordinator.decision", coord_text[:80])
+            span.set_attribute("coordinator.decision", clean_decision[:80])
             should_dispatch = "HANDOFF:DISPATCH" in coord_text or (
                 get_settings().auto_dispatch and incident.severity in (Severity.HIGH, Severity.CRITICAL)
             )
