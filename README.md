@@ -741,7 +741,7 @@ how to get past them. Work through them in order.
 
 **1. Local env — `requirements.txt` OpenTelemetry conflict.**
 `azure-monitor-opentelemetry` pins `opentelemetry-sdk==1.40`, so the
-`opentelemetry-*` lines are pinned to `>=1.40` (not `>=1.42`). If you bump them,
+`opentelemetry-*` lines are pinned to `==1.40`/`==0.61b0` (not `>=1.42`). If you bump them,
 keep them compatible with whatever `azure-monitor-opentelemetry` resolves or
 `pip install -r requirements.txt` fails with `ResolutionImpossible`.
 
