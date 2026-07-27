@@ -38,7 +38,7 @@ opentelemetry-instrumentation-httpx==0.64b0
 
 # --- Demo UX & utils ---
 rich>=15.0.0
-pydantic>=2.9.2
+pydantic>=2.13.4
 pydantic-settings>=2.14.2
 python-dotenv>=1.2.2
 typer>=0.26.8
