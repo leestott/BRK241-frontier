@@ -29,7 +29,7 @@ websockets>=16.0
 
 # --- Mock D365 (Dataverse-shaped REST) ---
 fastapi>=0.115.0
-uvicorn[standard]>=0.32.0
+uvicorn[standard]>=0.51.0
 
 # --- OpenTelemetry ---
 opentelemetry-api==1.43.0
