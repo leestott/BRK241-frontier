@@ -28,7 +28,7 @@ httpx>=0.28.1
 websockets>=16.0
 
 # --- Mock D365 (Dataverse-shaped REST) ---
-fastapi>=0.115.0
+fastapi>=0.140.0
 uvicorn[standard]>=0.32.0
 
 # --- OpenTelemetry ---
