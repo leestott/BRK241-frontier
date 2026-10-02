@@ -244,6 +244,67 @@ def test_voice_partial_renders_outbox(client: TestClient, chdir_state_tmp: Path)
     assert "Heads up team" in r.text
 
 
+def test_voice_partial_tolerates_incomplete_and_invalid_records(
+    client: TestClient, chdir_state_tmp: Path
+) -> None:
+    valid = {
+        "ts": "2026-06-13T10:01:02+00:00",
+        "incident_id": "INC-VALID",
+        "phrase": "outage_detected",
+        "voice": "en-GB-RyanNeural",
+        "text": "Service update",
+        "severity": "critical",
+    }
+    voice = _voice_path(chdir_state_tmp / "state")
+    voice.write_text(
+        json.dumps(valid) + "\n"
+        + json.dumps({**valid, "ts": None, "incident_id": "INC-BAD"}) + "\n"
+        + '{"ts": "unfinished',
+        encoding="utf-8",
+    )
+    r = client.get("/partials/voice")
+    assert r.status_code == 200
+    assert "INC-VALID" in r.text
+    assert "INC-BAD" not in r.text
+    assert "Some voice updates could not be loaded" in r.text
+
+    voice.write_text(json.dumps(valid) + "\n", encoding="utf-8")
+    recovered = client.get("/partials/voice")
+    assert recovered.status_code == 200
+    assert "INC-VALID" in recovered.text
+    assert "Some voice updates could not be loaded" not in recovered.text
+
+
+def test_voice_partial_survives_outbox_deleted_between_check_and_read(
+    client: TestClient, chdir_state_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _voice_path(chdir_state_tmp / "state").write_text("{}\n", encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def interrupted_read(path: Path, *args: object, **kwargs: object) -> str:
+        if path == ui_module.VOICE_OUTBOX:
+            raise FileNotFoundError(path)
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", interrupted_read)
+    r = client.get("/partials/voice")
+    assert r.status_code == 200
+    assert "No voice updates yet" in r.text
+
+
+def test_voice_partial_reports_outbox_io_failure(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failed_read(path: Path, *args: object, **kwargs: object) -> str:
+        raise PermissionError("sensitive storage path")
+
+    monkeypatch.setattr(Path, "read_text", failed_read)
+    r = client.get("/partials/voice")
+    assert r.status_code == 503
+    assert "Voice updates are temporarily unavailable" in r.text
+    assert "sensitive storage path" not in r.text
+
+
 def test_action_voice_dispatched_phrase(client: TestClient, chdir_state_tmp: Path) -> None:
     _write_run_for_ui(chdir_state_tmp / "state", dispatched=True)
     r = client.post("/actions/voice")
@@ -253,6 +314,17 @@ def test_action_voice_dispatched_phrase(client: TestClient, chdir_state_tmp: Pat
     assert payload["phrase"] == "engineer_dispatched"
     assert "Priya Shah" in payload["text"]
     assert "22" in payload["text"]
+
+
+def test_action_voice_skips_incomplete_outbox_record(
+    client: TestClient, chdir_state_tmp: Path
+) -> None:
+    _write_run_for_ui(chdir_state_tmp / "state", dispatched=True)
+    _voice_path(chdir_state_tmp / "state").write_text('{"ts": "unfinished\n', encoding="utf-8")
+    r = client.post("/actions/voice")
+    assert r.status_code == 200
+    assert "INC-UI-1" in r.text
+    assert "Some voice updates could not be loaded" in r.text
 
 
 def test_action_voice_outage_phrase_when_not_dispatched(

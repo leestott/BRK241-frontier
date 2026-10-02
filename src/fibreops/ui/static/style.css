@@ -52,16 +52,68 @@
 .btn-secondary { background: rgb(51 65 85); color: rgb(241 245 249); border-color: rgb(71 85 105); }
 .btn-ghost     { background: transparent; color: rgb(148 163 184); border-color: rgb(51 65 85); }
 .btn-primary:hover, .btn-secondary:hover, .btn-warning:hover, .btn-danger:hover, .btn-ghost:hover { filter: brightness(1.1); }
+.btn-primary:focus-visible, .btn-secondary:focus-visible, .btn-warning:focus-visible,
+.btn-danger:focus-visible, .btn-ghost:focus-visible, .card:focus-visible {
+  outline: 2px solid rgb(56 189 248);
+  outline-offset: 2px;
+}
+button:disabled { opacity: 0.55; cursor: wait; filter: none; }
+
+.activity-status {
+  color: rgb(203 213 225);
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.activity-status[data-kind="pending"] { color: rgb(252 211 77); }
+.activity-status[data-kind="ok"] { color: rgb(110 231 183); }
+.activity-status[data-kind="error"], .panel-error { color: rgb(253 164 175); }
+.panel-error { font-size: 0.875rem; margin-bottom: 0.75rem; }
+
+.operations-menu { position: relative; }
+.operations-menu summary { display: block; list-style: none; }
+.operations-menu summary::-webkit-details-marker { display: none; }
+.operations-menu summary:focus-visible { outline: 2px solid rgb(56 189 248); outline-offset: 2px; }
+.operations-menu-content {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  z-index: 20;
+  width: min(16rem, calc(100vw - 2rem));
+  padding: 0.75rem;
+  border: 1px solid rgb(71 85 105);
+  border-radius: 0.375rem;
+  background: rgb(15 23 42);
+  box-shadow: 0 0.6rem 1.5rem rgb(0 0 0 / 0.3);
+}
+.operations-menu-content p { color: rgb(203 213 225); font-size: 0.75rem; margin-bottom: 0.6rem; }
+.operations-menu-content .btn-ghost { color: rgb(253 164 175); }
+.operations-menu-content .btn-theme { width: 100%; text-align: left; margin-bottom: 0.75rem; }
 
 .card {
   background: rgb(15 23 42);
   border: 1px solid rgb(30 41 59);
-  border-left-width: 3px;
   border-radius: 0.375rem;
   padding: 0.5rem 0.6rem;
   transition: background 150ms ease;
 }
 .card:hover { background: rgb(30 41 59); }
+.card--selected { outline: 2px solid rgb(56 189 248); outline-offset: -2px; }
+.card-summary {
+  color: rgb(203 213 225);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  margin-top: 0.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.incident-elapsed {
+  color: rgb(203 213 225);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  margin-left: auto;
+  white-space: nowrap;
+}
 
 .sev-low      { border-left-color: rgb(100 116 139); }
 .sev-medium   { border-left-color: rgb(56 189 248); }
@@ -238,6 +290,24 @@ html[data-theme="light"] .teams-card {
   border-color: rgb(226 232 240);
 }
 html[data-theme="light"] .card:hover { background: rgb(241 245 249); }
+html[data-theme="light"] .card--selected { outline-color: rgb(2 132 199); }
+html[data-theme="light"] .card-summary,
+html[data-theme="light"] .incident-elapsed { color: rgb(51 65 85); }
+html[data-theme="light"] .activity-status { color: rgb(51 65 85); }
+html[data-theme="light"] .activity-status[data-kind="pending"] { color: rgb(146 64 14); }
+html[data-theme="light"] .activity-status[data-kind="ok"] { color: rgb(4 120 87); }
+html[data-theme="light"] .activity-status[data-kind="error"],
+html[data-theme="light"] .panel-error { color: rgb(159 18 57); }
+html[data-theme="light"] .operations-menu-content {
+  background: rgb(255 255 255);
+  border-color: rgb(203 213 225);
+}
+html[data-theme="light"] .operations-menu-content p { color: rgb(51 65 85); }
+html[data-theme="light"] .operations-menu-content .btn-ghost { color: rgb(159 18 57); }
+
+@media (max-width: 1023px) {
+  body > header.sticky { position: relative; }
+}
 
 html[data-theme="light"] .kv span:first-child,
 html[data-theme="light"] .callout h3 { color: rgb(71 85 105); }
@@ -330,7 +400,7 @@ html[data-theme="light"] body.noc-bg {
 .panel-meta {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.65rem;
-  color: rgb(100 116 139);
+  color: rgb(148 163 184);
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -346,7 +416,7 @@ html[data-theme="light"] .panel-meta { color: rgb(100 116 139) !important; }
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.7rem;
   letter-spacing: 0.08em;
-  color: rgb(71 85 105);
+  color: rgb(148 163 184);
   text-align: center;
   padding: 1rem 0.5rem;
   border: 1px dashed rgb(30 41 59);
@@ -361,7 +431,7 @@ html[data-theme="light"] .panel-meta { color: rgb(100 116 139) !important; }
     );
 }
 html[data-theme="light"] .empty-state {
-  color: rgb(100 116 139) !important;
+  color: rgb(71 85 105) !important;
   border-color: rgb(203 213 225) !important;
   background:
     repeating-linear-gradient(
@@ -587,3 +657,8 @@ html[data-theme="light"] .card.sev-critical { animation: card-pulse-light 2s eas
   50%      { box-shadow: 0 0 0 1px rgb(225 29 72 / 0.7), 0 0 10px rgb(225 29 72 / 0.4); }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .card.sev-critical, .pulse-critical, .led--critical, .kpi-tile--alarm {
+    animation: none;
+  }
+}
