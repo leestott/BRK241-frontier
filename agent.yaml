@@ -20,16 +20,17 @@ cpu: "1"
 memory: "2Gi"
 
 # The container serves the OpenAI-compatible /responses contract on port 8088
-# via agent_framework_foundry_hosting.ResponsesHostServer.
+# via agent_framework_foundry_hosting.ResponsesHostServer. Protocol 2.0.0 is
+# required by the current session-based hosted-agent runtime.
 protocol_versions:
   - protocol: responses
-    version: "1.0.0"
+    version: "2.0.0"
 
 # User-declared runtime configuration. Do NOT add FOUNDRY_* or
 # APPLICATIONINSIGHTS_CONNECTION_STRING — the platform injects those.
 environment_variables:
-  # Model deployment the agent reasons with (read as MODEL_DEPLOYMENT_NAME).
-  MODEL_DEPLOYMENT_NAME: gpt-4.1-mini
+  # Model deployment the agent reasons with.
+  AZURE_AI_MODEL_DEPLOYMENT_NAME: gpt-5.4-mini
   # Foundry IQ grounding stays on; Web/Work IQ fall back to fixtures when no
   # FOUNDRY_WEB_IQ_ENDPOINT / FOUNDRY_WORK_IQ_ENDPOINT is configured.
   FIBREOPS_FOUNDRY_IQ: "true"
