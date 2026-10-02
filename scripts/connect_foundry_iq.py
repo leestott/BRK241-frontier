@@ -32,7 +32,7 @@ import sys
 import httpx
 from azure.identity import DefaultAzureCredential
 
-KB_MCP_API_VERSION = "2026-05-01-preview"
+KB_MCP_API_VERSION = "2026-08-01-preview"
 CONNECTIONS_API_VERSION = "2025-10-01-preview"
 
 

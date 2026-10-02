@@ -20,9 +20,11 @@
                                               Optimiser (rubric → suggestions)
 ```
 
-Agents are **hosted Prompt Agents** in Microsoft Foundry Agent Service
-(`agent_framework_foundry.FoundryAgent`). Tools are typed Python functions
-the runtime supplies to the hosted definition.
+In the deployed configuration, the three roles use **hosted Prompt Agents** in
+Microsoft Foundry Agent Service (`agent_framework_foundry.FoundryAgent`).
+The `foundry` and `local` backends are available for development. Typed Python
+tools execute in the application; the hosted agent can also use a Foundry IQ
+MCP connection when configured.
 
 ### Architecture diagram
 
@@ -47,25 +49,25 @@ that leave the process for an Azure or Microsoft 365 service).
 | # | Node | Lane | Role |
 | --- | --- | --- | --- |
 | ① | NOC Operator / Foundry Playground | Client | Human-in-the-loop driving the demo from the browser, CLI, or Foundry Playground |
-| ② | NOC Console (FastAPI + HTMX · Demo CLI) | Application | Entry point — serves the dashboard and exposes the run/optimiser JSON API |
+| ② | NOC Console (FastAPI + HTMX + voice proxy) | Application | Entry point — serves the dashboard, proxies duplex voice audio, and exposes the run/optimiser JSON API |
 | ③ | Telemetry ingest (Event Hub · generator) | Application | Real Azure Event Hubs consumer **or** the deterministic synthetic OLT signal generator |
 | ④ | `IncidentAnalysisAgent` | Orchestration | Classifies severity, finds root cause, pulls the right SOP |
 | ⑤ | `NetOpsCoordinatorAgent` | Orchestration | Files the D365 incident and posts the Teams outage notice |
 | ⑥ | `FieldDispatchAgent` | Orchestration | Selects the best engineer, books the resource, updates Teams |
 | ⑦ | Integration tools (`FunctionTool`) | Orchestration | Typed Python tools the runtime supplies to the hosted agents |
 | ⑧ | Knowledge — SOPs + topology | Orchestration | Retrieval over standard operating procedures and the fibre node graph |
-| ⑨ | Web IQ / Work IQ search | Orchestration | Grounding against Microsoft 365 / web sources |
+| ⑨ | Foundry IQ knowledge base | Orchestration | Grounding through the Azure AI Search knowledge base |
 | ⑩ | Microsoft Teams | External | Adaptive Card outage notices + status updates via Incoming Webhook |
 | ⑪ | Dynamics 365 Field Service (mock) | External | Dataverse-shaped REST for incidents and bookable-resource bookings |
-| ⑫ | Azure AI Voice Live | External | SSML status announcements, voice/prosody chosen per severity |
+| ⑫ | Foundry Voice Agent (Preview) | External | Managed realtime speech over the console's authenticated WebSocket proxy |
 | ⑬ | Microsoft Foundry Agent Service | External | Hosts the published Prompt Agents that back ④–⑥ |
 
 **End-to-end flow.** A telemetry signal arrives at ③ (Event Hub or generator)
 and the **Orchestrator** (`handle_signal`, lane 3) drives it through the agent
 pipeline ④ → ⑤ → ⑥. Each agent calls the typed tools ⑦–⑨ — SOP/topology
-lookups and Web/Work IQ grounding — then fans out to the external services:
+lookups and Foundry IQ grounding — then fans out to the external services:
 ticket and booking to **D365** ⑪, Adaptive Cards to **Microsoft Teams** ⑩, and
-spoken updates through **Azure AI Voice Live** ⑫. The agents themselves are
+spoken updates through the **Foundry Voice Agent (Preview)** ⑫. The agents themselves are
 hosted Prompt Agents in **Microsoft Foundry Agent Service** ⑬. The operator ①
 sees everything live in the NOC Console ②.
 
@@ -107,24 +109,29 @@ sees everything live in the NOC Console ②.
   protocol; `python -m fibreops.demo deploy-hosted` registers it. See
   [Deploy the containerised hosted agent](#deploy-the-containerised-hosted-agent).
 
-![Architecture](./docs/images/architecture.png)  
+The following is the original conceptual BRK241 scenario, with the voice
+interaction labelled for Foundry Voice Agents Preview. Some illustrated
+services and channels represent the wider scenario rather than integrations
+implemented by this demo (notably Work IQ and Microsoft 365 channels).
+
+![High-level Foundry voice-agent scenario](./docs/images/architecture.png)
 
 ## NOC console preview
 
-The deployed application is a tactical Network Operations Center wallboard
+The application is a tactical Network Operations Center wallboard
 with a live KPI strip, node topology grid, severity LEDs, alarm pulses,
 panel codes (`[01·RUNS]`, `[02·DETAIL]`, …), live UTC clock, and a
-light/dark theme toggle. All numbers are aggregated from real run state —
-nothing is fabricated.
+light/dark theme toggle. The full-page screenshots below use an isolated
+local demo with sample incidents; live dashboard figures reflect its own
+run state and may differ.
 
 | Dark mode (default NOC look)                              | Light mode                                                   |
 | --------------------------------------------------------- | ------------------------------------------------------------ |
-| ![NOC dark](./docs/screenshots/noc-dark-prod.png)         | ![NOC light](./docs/screenshots/noc-light-prod.png)          |
+| ![NOC dark](./docs/screenshots/noc-dark-demo.png)         | ![NOC light](./docs/screenshots/noc-light-demo.png)          |
 
-Run detail with a real Foundry agent decision (Incident Analysis →
-NetOps Coordinator handing off to dispatch):
+Demo run detail with an incident analysis decision and dispatch handoff:
 
-![NOC run detail](./docs/screenshots/noc-run-detail-prod.png)
+![NOC run detail](./docs/screenshots/noc-run-detail-demo.png)
 
 ## Quick start
 
@@ -169,7 +176,7 @@ Set `FIBREOPS_AGENT_BACKEND` to override; otherwise auto-detect:
 
 | Configured value | Behaviour                                                                |
 | ---------------- | ------------------------------------------------------------------------ |
-| `auto` _(default)_ | `hosted` if `state/foundry_agents.json` exists; else `foundry` if endpoint set; else `local` |
+| `auto` _(default)_ | `hosted` if a local published-agent registry or `FIBREOPS_PUBLISHED_AGENTS` is configured; else `foundry` if endpoint set; else `local` |
 | `hosted`           | Always bind to published `FoundryAgent`s (errors if not yet published)   |
 | `foundry`          | Always build local `Agent + FoundryChatClient`                           |
 | `local`            | Always use the deterministic `LocalAgent` shim                           |
@@ -208,8 +215,8 @@ Layout:
 | **`[03·TOPO]`**     | Node grid coloured by severity, dispatched outline, click-to-jump-to-detail, severity legend |
 | **`[04·OPTIMISER]`** | Average rubric score, per-criterion bars, top suggestions   |
 | **`[05·TEAMS]`**    | Flattened Adaptive Card preview (polled every 5 s)          |
-| **`[06·VOICE]`**    | Voice Live outbox (utterance, voice, severity)              |
-| **`[07·IQ]`**       | Foundry IQ + Web IQ + Work IQ grounding lookups (real Bing/Fabric calls in `foundry`/`hosted` mode, fixtures in `local` mode) |
+| **`[06·VOICE]`**    | Voice-agent announcement outbox; reports failed reads and incomplete records rather than silently showing an empty panel |
+| **`[07·IQ]`**       | Foundry IQ knowledge-base lookups when configured, otherwise deterministic Web/Work IQ fixtures; optional legacy HTTP connectors can provide additional context |
 
 Action buttons:
 
@@ -217,7 +224,15 @@ Action buttons:
 - **Inject CRITICAL ×3** — push three signals including a forced `CRITICAL` event
 - **Start / Stop simulation** — continuous injection on a 10 s loop
 - **Run optimiser** — score the latest runs and refresh suggestions
-- **Reset state** — truncate `runs.jsonl`, `traces.jsonl`, `teams_outbox.jsonl`, and the D365 store
+- **Options → Reset state** — confirm before clearing runs, traces, voice and
+  Teams outboxes, IQ lookups, and the D365 store
+
+The incident list selects the newest critical run (or the newest run if none
+is critical) when it first loads. Clicking another run retains that selection
+across polling. Cards show severity, dispatch state and elapsed time first;
+the full summary remains available in the detail panel. Action progress and
+failures appear in a separate status message from the voice-agent connection
+state.
 
 There is also a small JSON API for scripting (`/api/runs`, `/api/optimiser`)
 and a `/healthz` endpoint for liveness probes.
@@ -227,33 +242,46 @@ and a `/healthz` endpoint for liveness probes.
 > into `src/fibreops/ui/static/` and update `templates/index.html` to point at
 > the local copies.
 
-## Voice Live integration (BRK241 slide 8)
+## Foundry Voice Agents Preview (BRK241 slide 8)
 
-The system can speak status updates through **Azure AI Voice Live integration
-with Foundry Agent Service** — the "Interact with Voice" arrow on Slide 4 and
-the announcement on Slide 8 of the deck.
+The system can speak status updates through a **separate Microsoft Foundry
+Voice Agent Preview**. The existing `gpt-5.4-mini` text agents are unchanged.
+Voice Agents Preview has no production SLA.
 
 Behaviour:
 
-- `tools/voice.speak_status_update(...)` builds an SSML utterance (voice +
-  prosody picked per severity) and either POSTs it to
-  `AZURE_VOICE_LIVE_ENDPOINT` or appends to `state/voice_outbox.jsonl`.
+- `tools/voice.speak_status_update(...)` records an announcement in
+  `state/voice_outbox.jsonl`; the browser requests the published agent to
+  speak that text. Without an agent, browser speech supplies an offline demo.
 - The **Speak status** button in the NOC console (`🔊 Speak status`) speaks
   the latest incident — uses the `engineer_dispatched` phrase when dispatch
   is complete, otherwise `outage_detected`.
 - Setting `FIBREOPS_VOICE_UPDATES=1` causes the NetOps and Field Dispatch
   agents to emit voice updates automatically at each milestone (off by
   default so the CLI demo stays quiet).
-- The new "Voice Live updates" pane in the UI shows the rolling outbox
+- The voice updates pane in the UI shows the rolling outbox
   (voice, transcript, incident id, timestamp) so the audience sees what the
   operator would hear.
 
 | Env var                       | Purpose                                                  |
 |-------------------------------|----------------------------------------------------------|
-| `AZURE_VOICE_LIVE_ENDPOINT`   | HTTPS endpoint accepting `{voice, ssml, text, ...}`      |
-| `AZURE_VOICE_LIVE_API_KEY`    | Optional `Ocp-Apim-Subscription-Key` header              |
-| `AZURE_VOICE_LIVE_VOICE`      | Override the default voice (e.g. `en-GB-SoniaNeural`)    |
+| `AZURE_AI_PROJECT_ENDPOINT`   | Foundry project endpoint for text and voice agents     |
+| `AZURE_VOICE_AGENT_NAME`      | Published `kind: voice` agent; empty = offline mode     |
+| `AZURE_VOICE_AGENT_VERSION`   | Optional tested version; empty uses latest              |
+| `AZURE_VOICE_AGENT_VOICE`     | Voice configured at publish time                        |
+| `AZURE_VOICE_AGENT_MODEL`     | Managed voice model configured at publish time (`gpt-realtime`) |
 | `FIBREOPS_VOICE_UPDATES`      | `1` = agents speak automatically; default `0` (UI only)  |
+
+To publish during `azd up`, set `FIBREOPS_PUBLISH_VOICE=true` **only in the
+ignored AZD environment**. The postdeploy hook creates `.venv-voice/`, installs
+`requirements-voice.txt`, publishes the definition from
+`src/fibreops/voice_live/definition.json`, and records the agent name and
+version in local AZD settings and App Service configuration. The isolated
+publisher is necessary because the current Agent Framework integration
+requires `azure-ai-projects<2.7` while Voice Agents Preview requires
+`azure-ai-projects>=2.7`. Authentication uses the web app managed identity;
+no API keys or bearer tokens are placed in the browser or tracked YAML.
+The project must support Voice Agents Preview and managed `gpt-realtime`.
 
 ## Foundry Routines (BRK241 slide 11)
 
@@ -285,9 +313,10 @@ gives the same observable behaviour and the same trace shape.
 
 ## Foundry IQ — Web IQ + Work IQ (BRK241 slide 9)
 
-The Incident Analysis agent grounds its reasoning with **Microsoft Foundry
-IQ** — the "Web IQ" and "Work IQ" tiles on slide 9. Two new tools sit in front
-of those endpoints:
+The Incident Analysis agent can ground its reasoning in a **Foundry IQ**
+knowledge base. The "Web IQ" and "Work IQ" tiles on slide 9 are represented
+by two optional HTTP connectors with deterministic fixtures when unset;
+they do not automatically connect to Microsoft's Web IQ or Work IQ services:
 
 - `tools/knowledge.web_iq_search(query, *, limit)` — public-web context
   (roadworks, weather, power, splice guidance).
@@ -306,9 +335,9 @@ disabled).
 | `FOUNDRY_IQ_SEARCH_ENDPOINT`     | Azure AI Search endpoint of the real Foundry IQ knowledge base |
 | `FOUNDRY_IQ_KNOWLEDGE_BASE`      | Knowledge base name (default `fibreops-knowledge-base`)        |
 | `FOUNDRY_IQ_SEARCH_API_KEY`      | Local-dev search key (runtime uses managed identity)           |
-| `FOUNDRY_WEB_IQ_ENDPOINT`        | Legacy HTTPS endpoint accepting `{query, top}` returning `{results: [...]}` |
+| `FOUNDRY_WEB_IQ_ENDPOINT`        | Optional HTTPS endpoint accepting `{query, limit}` returning `{results: [...]}` |
 | `FOUNDRY_WEB_IQ_API_KEY`         | Optional `Ocp-Apim-Subscription-Key` header                    |
-| `FOUNDRY_WORK_IQ_ENDPOINT`       | Legacy HTTPS endpoint for enterprise IQ (same shape as Web IQ) |
+| `FOUNDRY_WORK_IQ_ENDPOINT`       | Optional enterprise HTTP connector (same shape as Web IQ) |
 | `FOUNDRY_WORK_IQ_API_KEY`        | Optional API key for Work IQ                                   |
 | `FIBREOPS_FOUNDRY_IQ`            | `0`/`false` disables IQ grounding entirely (default: `1`)      |
 
@@ -320,10 +349,10 @@ disabled).
 
 ## GitHub Copilot SDK adapter (BRK241 slide 4)
 
-The **GitHub Copilot SDK** in the deck is mirrored locally by
-`fibreops.sdk.FibreOpsCopilotClient` — same `create_session()` /
-`send_and_wait()` shape as `@github/copilot-sdk`, so the same calling code
-works against either implementation.
+`fibreops.sdk.FibreOpsCopilotClient` is an **in-process demo adapter** inspired
+by the `create_session()` / `send_and_wait()` flow of `@github/copilot-sdk`.
+It does not install or invoke the GitHub Copilot SDK, and its API is not a
+drop-in replacement for that SDK.
 
 ```python
 from fibreops.sdk import FibreOpsCopilotClient
@@ -399,11 +428,11 @@ deployed FastAPI app.
 | Foundry Routines         | Hosted Routine on Foundry Agent Service                    | `NetOpsRoutineAgent` local runner          |
 | Event Hub                | `EventHubConsumerClient` with `DefaultAzureCredential`     | In-process async generator                 |
 | Microsoft Teams          | Incoming Webhook (Adaptive Card)                           | Append to `state/teams_outbox.jsonl`       |
-| Voice Live               | `AZURE_VOICE_LIVE_ENDPOINT` (Voice Live / Azure AI Speech) | Append to `state/voice_outbox.jsonl`       |
+| Foundry Voice Agent Preview | Published `AZURE_VOICE_AGENT_NAME` (managed realtime model) | Outbox + browser speech |
 | D365 Field Service       | Set `D365_MOCK_BASE_URL` to a real Dataverse v9.2 endpoint | FastAPI service (`fibreops.mocks.d365_service`) |
-| Knowledge (SOPs, topology) | Foundry Work IQ / Web IQ / Fabric IQ connections          | Local JSON + markdown                       |
-| Foundry IQ grounding     | `FOUNDRY_WEB_IQ_ENDPOINT` + `FOUNDRY_WORK_IQ_ENDPOINT`     | Deterministic fixtures in `tools/knowledge.py` |
-| GitHub Copilot SDK       | `@github/copilot-sdk` against a hosted endpoint            | `fibreops.sdk.FibreOpsCopilotClient` (in-process) |
+| Knowledge (SOPs, topology) | Azure AI Search knowledge base and optional custom HTTP connectors | Local JSON + markdown |
+| Foundry IQ grounding     | `FOUNDRY_IQ_SEARCH_ENDPOINT` + `FOUNDRY_IQ_KNOWLEDGE_BASE` | Deterministic fixtures in `tools/knowledge.py` |
+| GitHub Copilot SDK       | Not integrated into this application                       | `fibreops.sdk.FibreOpsCopilotClient` (in-process demo adapter) |
 | Microsoft 365 Copilot publishing | Sideloaded `fibreops-copilot.zip` (Teams / Microsoft 365 admin) | `python -m fibreops.demo publish-m365` produces a placeholder package |
 | Memory                   | Foundry Agent Memory store                                 | SQLite `state/memory.db`                    |
 | Optimiser                | `FoundryEvals` + `evaluate_traces`                         | Local rubric (`fibreops.optimiser`)         |
@@ -453,18 +482,26 @@ docs/
 
 The repository ships a complete `azd` (Azure Developer CLI) template. A single
 `azd up` provisions all infrastructure and deploys the whole solution:
-**Azure App Service for Linux Containers** (NOC console), a private **Azure
+**Azure App Service for Linux Containers** (NOC console), **Azure
 Container Registry**, **Event Hub**, **Key Vault**, **Log Analytics**,
-**Application Insights**, the **Azure AI Services (Voice Live)** account, the
+**Application Insights**, a new **Foundry account/project and model deployment**,
+an optional legacy **Azure AI Services (Voice Live)** account, the
 three role **Prompt Agents**, and (optionally) the containerised **hosted
-agent**.
+agent**. The separate Foundry Voice Agent Preview uses the Foundry project,
+not the legacy Speech account or its API key.
 
 | Component | How it's deployed |
 |-----------|-------------------|
-| Infra (App Service, ACR, Event Hub, Key Vault, Log Analytics, App Insights, **Voice Live** AI Services account) | `infra/main.bicep` |
+| Infra (App Service, ACR, Event Hub, Key Vault, Log Analytics, App Insights, **Foundry project and model**, Voice Live AI Services account) | `infra/main.bicep` |
 | NOC console container image | Built in ACR via `remoteBuild: true` (no local Docker) and deployed to App Service |
 | Three role **Prompt Agents** (`fibreops-incident-analysis`, `-netops-coordinator`, `-field-dispatch`) | `postdeploy` hook → `scripts/postdeploy.ps1` → `fibreops.demo publish` (the default `hosted` backend binds to these) |
 | Containerised **hosted agent** (single `/responses` agent) | `postdeploy` hook when `FIBREOPS_DEPLOY_HOSTED=true` |
+
+AI Search defaults to Basic in the application region. If that region has
+insufficient capacity, set `AZURE_SEARCH_LOCATION` in the ignored AZD
+environment to a region with capacity. For example, North Europe keeps
+the Sweden Central demo's Search data within the EU, but adds cross-region
+latency and may affect your data-residency requirements.
 
 Follow the steps below in order. Commands are PowerShell 7+ on Windows; the same
 `azd`/`az` commands work on macOS/Linux (swap `.\.venv\Scripts\python.exe` for
@@ -474,8 +511,10 @@ Follow the steps below in order. Commands are PowerShell 7+ on Windows; the same
 
 - **Azure CLI** (`az`) and **Azure Developer CLI** (`azd` ≥ 1.10)
 - **PowerShell 7+** (`pwsh`) — required by the deploy scripts
-- A **Foundry project** with a deployed chat model (e.g. `gpt-4.1-mini`,
-  `gpt-4o-mini`, `gpt-5.4-mini`)
+- `gpt-5.4-mini` Global Standard quota in the chosen region (the Bicep
+  deployment reserves 200 capacity units / 200,000 tokens per minute)
+- Permission to create a **single-tenant Microsoft Entra app registration**
+  and assign the web app managed identity Key Vault access
 - **Docker is NOT required** — images build in ACR
 
 You also need rights to deploy resources in the target subscription, and — for
@@ -503,18 +542,40 @@ azd env new fibreops-demo
 ### Step 4 — Configure the deployment
 
 ```powershell
-# Foundry project endpoint (…/api/projects/<project>) and the model deployment name:
-azd env set AZURE_AI_PROJECT_ENDPOINT  "https://<account>.services.ai.azure.com/api/projects/<project>"
-azd env set AZURE_AI_MODEL_DEPLOYMENT  "gpt-4.1-mini"
+# The Bicep deployment creates the Foundry project and sets its endpoint.
+# Set an endpoint only if intentionally using an external, existing project.
+azd env set AZURE_AI_MODEL_DEPLOYMENT  "gpt-5.4-mini"
 azd env set AZURE_LOCATION             "swedencentral"   # any App Service + ACR region
 
 # Optional: also deploy the containerised hosted agent during azd up
 azd env set FIBREOPS_DEPLOY_HOSTED     true
 ```
 
-> Tip: find your project endpoint with
-> `az cognitiveservices account show -n <account> -g <rg> --query properties.endpoint`
-> and re-shape it to `https://<account>.services.ai.azure.com/api/projects/<project>`.
+The web app requires Microsoft Entra sign-in. Create a single-tenant app
+registration, then save its client ID and a short-lived credential only in the
+ignored AZD environment (never in `azure.yaml` or `.env.example`):
+
+```powershell
+$appId = az ad app create --display-name "FibreOps NOC Demo" `
+  --sign-in-audience AzureADMyOrg --query appId -o tsv
+# App Service Authentication requests code+id_token; the registration must
+# permit ID-token issuance for that hybrid sign-in response.
+az ad app update --id $appId --enable-id-token-issuance true
+azd env set FIBREOPS_AAD_CLIENT_ID $appId
+azd env set FIBREOPS_ALLOWED_USER_OBJECT_ID (az ad signed-in-user show --query id -o tsv)
+$credential = az ad app credential reset --id $appId --append --years 1 -o json |
+  ConvertFrom-Json
+azd env set FIBREOPS_AAD_CLIENT_SECRET $credential.password
+$credential.password = $null
+```
+
+The Bicep deployment stores the credential in Key Vault, references it from
+App Service, and enables Authentication V2 with an allow-list containing only
+that initial operator. Rotate the credential before it expires.
+
+> Do not reuse an endpoint or ACR name from another subscription. AZD writes
+> the newly provisioned endpoint and resource names into its ignored local
+> environment after provisioning.
 
 ### Step 5 — Deploy
 
@@ -522,22 +583,32 @@ azd env set FIBREOPS_DEPLOY_HOSTED     true
 azd up
 ```
 
-This provisions the resource group, builds the NOC image in ACR, deploys the
-App Service, then runs the `postdeploy` hook to publish the three Prompt Agents
+This provisions the resource group, Foundry project and model, builds the NOC
+image in ACR, deploys the App Service, then runs the `postdeploy` hook to grant
+managed-identity roles and publish the three Prompt Agents
 (and the hosted agent if `FIBREOPS_DEPLOY_HOSTED=true`). The NOC console URL is
 printed at the end. Hook toggles: `FIBREOPS_SKIP_PUBLISH=true` skips the Prompt
 Agent publish (e.g. when using `FIBREOPS_AGENT_BACKEND=foundry`/`local`).
+The hook fails `azd up` if a required grant, publication, or enabled hosted
+agent deployment fails; inspect the error before calling the rollout complete.
+Add the new site's callback URL to the Entra registration before signing in:
 
-### Step 6 — Grant the managed-identity roles (required)
+```powershell
+$appId = azd env get-value FIBREOPS_AAD_CLIENT_ID
+$hostname = azd env get-value AZURE_APP_SERVICE_HOSTNAME
+az ad app update --id $appId --web-redirect-uris "https://$hostname/.auth/login/aad/callback"
+```
 
-The Bicep does **not** create role assignments because most deployers only have
-`Contributor`. Until these roles exist, the App Service MI cannot call Foundry
-or Voice Live at runtime — injecting a signal returns `500` and the voice panel
-stays offline. An **Owner** / **User Access Administrator** runs this **once**:
+### Step 6 — Confirm the managed-identity roles
+
+The `postdeploy` hook grants roles automatically when the deployer has
+`Microsoft.Authorization/roleAssignments/write`. Without that permission,
+`azd up` fails rather than leaving an unusable deployment; an **Owner** or
+**User Access Administrator** must run the script and then retry:
 
 ```powershell
 pwsh scripts/grant-mi-roles.ps1 `
-  -ResourceGroup        rg-fibreops-demo `
+  -ResourceGroup        <resource-group> `
   -FoundryAccountName   <your-foundry-account> `
   -FoundryResourceGroup <rg-that-holds-foundry> `
   -FoundryProjectName   <your-foundry-project>   # optional; auto-discovered if omitted
@@ -548,9 +619,9 @@ The script grants the App Service's system-assigned managed identity:
 | Role                          | Scope                | Why                                          |
 |-------------------------------|----------------------|----------------------------------------------|
 | `Azure Event Hubs Data Owner` | Event Hubs namespace | Publish + consume `fibre-signals`            |
-| `Key Vault Secrets User`      | Key Vault            | Read the Voice Live key + optional secrets   |
+| `Key Vault Secrets User`      | Key Vault            | Read the optional legacy Voice Live key and other secrets |
 | `AcrPull`                     | Container Registry   | Pull image with MI instead of admin creds    |
-| `Cognitive Services User`     | Voice Live account   | Use the Voice Live realtime endpoint         |
+| `Cognitive Services User`     | Optional legacy Voice Live account | Legacy integration role; the preview voice agent instead uses the Foundry project |
 | `Search Index Data Reader`    | Azure AI Search      | Retrieve from the Foundry IQ knowledge base  |
 | `Azure AI Developer`          | Foundry account      | Invoke hosted Prompt Agents + manage threads |
 | `Cognitive Services OpenAI User` | Foundry account   | Call the chat-completions deployment from the agent runtime |
@@ -569,15 +640,16 @@ solution, see [Required permissions (RBAC)](#required-permissions-rbac) below.
 Wait **2–5 minutes** for role assignments to propagate, then restart and test:
 
 ```powershell
-az webapp restart -g rg-fibreops-demo -n <webapp-name>
+az webapp restart -g <resource-group> -n <webapp-name>
 
-# Health + an end-to-end agent run (expect 200 for both):
-curl "https://<webapp>/healthz"
-curl -Method POST "https://<webapp>/actions/inject?count=1&critical=true"
+# The health probe is anonymous; the action requires a signed-in operator:
+curl.exe "https://<webapp>/healthz"
 ```
 
-Open the NOC console URL and click **Simulate** to stream live runs through the
-analyse → coordinate → dispatch pipeline.
+Open the NOC console URL, sign in with the allowed Microsoft Entra account,
+and click **Inject signal**. Confirm an incident appears before using
+**Start simulation** to stream further runs through the pipeline. An
+unauthenticated POST to `/actions/inject` returns 401.
 
 ### Step 8 (optional) — Harden registry access
 
@@ -585,10 +657,10 @@ Switch the App Service to pull via managed identity and disable the ACR admin
 user:
 
 ```powershell
-az webapp config set -g rg-fibreops-demo -n <webapp-name> `
+az webapp config set -g <resource-group> -n <webapp-name> `
   --generic-configurations '{"acrUseManagedIdentityCreds": true}'
 az acr update -n <acr-name> --admin-enabled false
-az webapp restart -g rg-fibreops-demo -n <webapp-name>
+az webapp restart -g <resource-group> -n <webapp-name>
 ```
 
 > **ABAC tip** — if your Foundry tenant scopes `Owner` with an ABAC condition
@@ -618,9 +690,9 @@ identity** roles are granted by `scripts/grant-mi-roles.ps1` and used at runtime
 | Role | Scope | Why |
 |------|-------|-----|
 | `Azure Event Hubs Data Owner` | Event Hubs namespace | Publish + consume `fibre-signals` |
-| `Key Vault Secrets User` | Key Vault | Read the Voice Live key + optional secrets |
+| `Key Vault Secrets User` | Key Vault | Read the optional legacy Voice Live key and other secrets |
 | `AcrPull` | Container Registry | Pull the NOC image via MI (after hardening) |
-| `Cognitive Services User` | Voice Live (AI Services) account | Use the Voice Live realtime endpoint |
+| `Cognitive Services User` | Optional legacy Voice Live (AI Services) account | Legacy integration role; not needed to invoke the Foundry voice agent |
 | `Search Index Data Reader` | Azure AI Search | Retrieve from the Foundry IQ knowledge base |
 | `Azure AI Developer` | Foundry account | Invoke hosted Prompt Agents + manage threads |
 | `Cognitive Services OpenAI User` | Foundry account | Call the chat-completions model deployment |
@@ -647,13 +719,13 @@ Foundry account.
 ### Infra-only deploy (no AZD)
 
 ```powershell
-az group create -n rg-fibreops-demo -l swedencentral
+az group create -n <resource-group> -l <location>
 az deployment group create `
-  --resource-group rg-fibreops-demo `
+  --resource-group <resource-group> `
   --template-file infra/main.bicep `
   --parameters namePrefix=fbreops `
                azureAiProjectEndpoint="https://<account>.services.ai.azure.com/api/projects/<project>" `
-               azureAiModelDeployment="gpt-4.1-mini"
+               azureAiModelDeployment="gpt-5.4-mini"
 ```
 
 This provisions infra only — you still need to build + push the container
@@ -681,14 +753,14 @@ registers the version:
 ```powershell
 # Grant the Foundry project MI AcrPull first (one-time, needs an Owner/UAA):
 pwsh scripts/grant-mi-roles.ps1 `
-  -ResourceGroup        rg-fibreops-demo `
+  -ResourceGroup        <resource-group> `
   -FoundryAccountName   <your-foundry-account> `
   -FoundryResourceGroup <rg-that-holds-foundry>
 
 # Build + push + deploy the hosted agent:
 pwsh scripts/deploy-hosted-agent.ps1 `
   -RegistryName  <your-acr-name> `
-  -ResourceGroup rg-fibreops-demo
+  -ResourceGroup <resource-group>
 ```
 
 Prefer to drive it by hand? Build/push the image yourself, then:
@@ -701,13 +773,36 @@ $env:FIBREOPS_HOSTED_IMAGE = "<acr>.azurecr.io/fibreops-outage-response:v1"
 Want it to run as part of `azd up`? There is no native azd host type for a
 Foundry hosted-agent version, so `azure.yaml` wires a `postdeploy` hook that runs
 the same `scripts/deploy-hosted-agent.ps1` path. It is **off by default** (so a
-normal `azd up` only deploys the NOC console) and uses `continueOnError`, so a
-missing Foundry RBAC grant never fails the web-app deploy. Opt in with:
+normal `azd up` deploys the NOC console and role Prompt Agents). Missing RBAC
+grants or a failed enabled hosted-agent deployment fail `azd up`. Opt in with:
 
 ```powershell
 azd env set FIBREOPS_DEPLOY_HOSTED true
 azd up   # provisions infra, deploys the NOC console, then registers the hosted agent
 ```
+
+Deployment-specific settings belong in the ignored local `.env` or `.azure/`
+azd environment, never in the tracked `azure.yaml`. All `.env.*` files except
+the placeholder-only `.env.example` are ignored; do not put credentials into
+examples, docs, or issue reports. CI rejects tracked local environment files,
+AZD state, and published-agent state. The published agent
+versions in `state/foundry_agents.json` are ignored locally. The NOC image
+contains no registry: after publishing, the postdeploy hook sets
+`FIBREOPS_PUBLISHED_AGENTS` on the App Service so the hosted backend can bind
+to the correct versions. The hook writes this JSON setting through an
+ephemeral local file so Azure CLI preserves the quotes required by the
+registry parser.
+
+> **Public-demo security boundary:** This template exposes its demo web app,
+> Search, Key Vault, and container registry over public Azure endpoints and
+> initially enables the ACR admin account for the web app's image pull. Secrets
+> are stored in Azure configuration/Key Vault, not the repository. For
+> production, manage operator authorization with an Entra security group
+> (rather than the single-user demo allow-list), restrict network access, use
+> managed-identity image pulls,
+> and disable the ACR admin account after verifying the `AcrPull` grant.
+> Removing a file from Git does not erase older public commits: rotate any
+> credential that was ever published.
 
 Validate the container locally before deploying (boots offline — the model is
 only called on the first request):
@@ -719,9 +814,11 @@ only called on the first request):
 > **Permissions** — deploying a hosted agent needs *Azure AI Project Manager*
 > at project scope; the Foundry project MI needs *Container Registry Repository
 > Reader* (`AcrPull`) on the ACR. The platform injects
-> `FOUNDRY_PROJECT_ENDPOINT`, `MODEL_DEPLOYMENT_NAME` is supplied via
+> `FOUNDRY_PROJECT_ENDPOINT`, `AZURE_AI_MODEL_DEPLOYMENT_NAME` is supplied via
 > `agent.yaml`'s `environment_variables` — do **not** hard-code `FOUNDRY_*`
 > values yourself.
+> The manifest declares hosted-agent protocol `2.0.0`; protocol `1.0.0` is no
+> longer accepted by the current session-based runtime.
 
 #### Optional Foundry services on the hosted agent
 
@@ -731,7 +828,7 @@ only called on the first request):
 | `FIBREOPS_HOSTED_IMAGE` | Full ACR image reference to deploy |
 | `FIBREOPS_HOSTED_CPU` / `FIBREOPS_HOSTED_MEMORY` | Sandbox size (`0.5`/`1Gi`, `1`/`2Gi`, `2`/`4Gi`) |
 | `FOUNDRY_MEMORY_STORE_NAME` | Attach `FoundryMemoryProvider` procedural memory (else local SQLite) |
-| `FIBREOPS_FOUNDRY_TOOLBOX` | `1` lights up Foundry Toolbox tools (e.g. `web_search`) on the agents |
+| `FIBREOPS_FOUNDRY_TOOLBOX` | `1` attaches the Foundry toolbox configured by `TOOLBOX_ENDPOINT` or `TOOLBOX_NAME` |
 | `FIBREOPS_FOUNDRY_EVALS` | `1` runs Foundry cloud Evaluators in the optimiser alongside the rubric |
 
 ### Deployment troubleshooting (lessons learned)
@@ -740,10 +837,10 @@ Real-world snags hit during an end-to-end `azd up` + hosted-agent deploy, and
 how to get past them. Work through them in order.
 
 **1. Local env — `requirements.txt` OpenTelemetry conflict.**
-`azure-monitor-opentelemetry` pins `opentelemetry-sdk==1.40`, so the
-`opentelemetry-*` lines are pinned to `==1.40`/`==0.61b0` (not `>=1.42`). If you bump them,
-keep them compatible with whatever `azure-monitor-opentelemetry` resolves or
-`pip install -r requirements.txt` fails with `ResolutionImpossible`.
+The current requirements pin `opentelemetry-api` and `opentelemetry-sdk` to
+`1.44.0` and `opentelemetry-instrumentation-httpx` to `0.65b0`. If you
+upgrade them, resolve the full set with `azure-monitor-opentelemetry` before
+deploying; mismatched pins cause `ResolutionImpossible`.
 
 **2. Local env — tests can't import `fibreops`.**
 The package lives under `src/`. After creating a venv, install it editable so
@@ -840,10 +937,10 @@ az acr build --registry <acr-name> --platform linux/amd64 `
 az acr task list-runs -r <acr-name> --top 1 -o table       # wait for Succeeded
 
 # Point the App Service at the real image and restart:
-az webapp config container set -g rg-fibreops-demo -n <webapp-name> `
+az webapp config container set -g <resource-group> -n <webapp-name> `
   --container-image-name "<acr-name>.azurecr.io/fibreops-noc:$tag" `
   --container-registry-url "https://<acr-name>.azurecr.io"
-az webapp restart -g rg-fibreops-demo -n <webapp-name>
+az webapp restart -g <resource-group> -n <webapp-name>
 ```
 
 The app listens on port `8800` (matching `WEBSITES_PORT`); allow ~60–90s for
@@ -853,23 +950,23 @@ container warmup, then check `https://<webapp>/healthz` returns `200`.
 The default agent backend is `hosted` (`FIBREOPS_AGENT_BACKEND=hosted`), which
 binds to three per-role **Prompt Agents** in your Foundry project
 (`fibreops-incident-analysis`, `fibreops-netops-coordinator`,
-`fibreops-field-dispatch`). These are **not** created by `azd up` — publish them
-once against the target project, then restart the web app:
+`fibreops-field-dispatch`). The `postdeploy` hook publishes them during a
+normal `azd up` and writes their versions to `FIBREOPS_PUBLISHED_AGENTS` in
+App Service configuration. If the hook was skipped or failed, rerun `azd
+deploy` and inspect its error; manually publishing agents alone does not set
+the App Service registry. For a local CLI run, you can publish them with:
 
 ```powershell
 $env:AZURE_AI_PROJECT_ENDPOINT = "https://<account>.services.ai.azure.com/api/projects/<project>"
 $env:AZURE_AI_MODEL_DEPLOYMENT = "gpt-5.4-mini"
 .\.venv\Scripts\python.exe -m fibreops.demo publish     # creates the 3 Prompt Agents (version 1)
-az webapp restart -g rg-fibreops-demo -n <webapp-name>
 ```
 
 The App Service managed identity also needs **Azure AI Developer** +
 **Cognitive Services OpenAI User** on the Foundry account
-(`scripts/grant-mi-roles.ps1` grants these). Verify end-to-end with:
-
-```powershell
-curl -Method POST "https://<webapp>/actions/inject?count=1&critical=true"   # expect 200
-```
+(`scripts/grant-mi-roles.ps1` grants these). Verify end-to-end by signing in
+to the NOC console and clicking **Inject signal**; an anonymous request to
+the action returns 401.
 
 Note this is distinct from the **containerised hosted agent**
 (`fibreops.demo deploy-hosted`) — that is the single `/responses` agent, while
@@ -877,49 +974,16 @@ Note this is distinct from the **containerised hosted agent**
 to publish? Set `FIBREOPS_AGENT_BACKEND=foundry` (resolves prompts locally
 against the model deployment) or `local` (fully deterministic, no Foundry).
 
-**10. Voice Live: "Speak status" / "Talk to agent" do nothing.**
-Symptom: the buttons appear active and `GET /api/voice/session` returns
-`{"enabled": true, …}`, but no audio plays and the mic never connects. The
-server-side proxy (`/ws/voice`) is failing to open the upstream Voice Live
-WebSocket. The most common cause is an **invalid `model` value**.
-
-Key facts learned the hard way:
-
-- **Voice Live models are fully managed — do NOT deploy them.** Unlike the
-  chat-completions model the agents use, you must **not** create a model
-  deployment in the AI Services account for Voice Live. The account having
-  *zero* deployments is correct.
-- **The `model` parameter must be a Voice Live *managed model name*, not your
-  Azure OpenAI deployment name.** Valid values include `gpt-4o-mini`,
-  `gpt-4o`, `gpt-4.1-mini`, `gpt-4.1`, `gpt-realtime`, `gpt-realtime-mini`,
-  `gpt-5`, `gpt-5-mini`. Passing a deployment name like `gpt-5.4-mini` (or any
-  name Voice Live doesn't publish) makes the upstream connection fail silently.
-  This is configured via **`AZURE_VOICE_LIVE_MODEL`** (default `gpt-4o-mini`);
-  it is deliberately separate from `AZURE_AI_MODEL_DEPLOYMENT`.
-- **The App Service managed identity needs `Cognitive Services User` on the
-  Voice Live account** (granted by `scripts/grant-mi-roles.ps1`). The proxy
-  authenticates with the MI's Entra token; without this role the WebSocket is
-  rejected. `AZURE_VOICE_LIVE_API_KEY` (a Key Vault reference) is only a local-
-  dev fallback — runtime uses the MI token.
-- **Region must support Voice Live** (e.g. `swedencentral`, `eastus2`). See
-  [Azure Speech service regions](https://learn.microsoft.com/azure/ai-services/speech-service/regions?tabs=voice-live#regions).
-
-Fix / verify:
-
-```powershell
-# Point the app at a valid Voice Live model (no model deployment required):
-az webapp config appsettings set -g rg-fibreops-demo -n <webapp-name> `
-  --settings AZURE_VOICE_LIVE_MODEL=gpt-4o-mini
-az webapp restart -g rg-fibreops-demo -n <webapp-name>
-
-# Confirm the session descriptor is enabled:
-curl "https://<webapp>/api/voice/session"   # -> {"enabled":true,"ws_path":"/ws/voice",...}
-```
-
-Then open the console and click **Speak status** (one-shot TTS) or **Talk to
-agent** (duplex mic). For the duplex agent conversation set
-`AZURE_VOICE_LIVE_AGENT_ID` to a published Foundry agent; left empty, the mic
-uses direct-model mode against `AZURE_VOICE_LIVE_MODEL`.
+**10. Voice agent: "Speak status" / "Talk to agent" do nothing.**
+Check `GET /api/voice/session`: `enabled` must be true, and `agent_name`
+must identify a published `kind: voice` agent in the same project. The app
+managed identity needs Foundry User access to invoke the agent. The server-side
+proxy at `/ws/voice` forwards events to the project voice endpoint with the
+`VoiceAgents=V1Preview` feature header and an Entra token; it does not use
+the legacy Speech account key. Confirm preview/model availability in the
+project region, check App Service logs for connection failures, then test
+microphone input and playback. `gpt-5.4-mini` is for the text agents and
+must not be substituted for the managed realtime voice model.
 
 ## Foundry IQ knowledge base
 
@@ -945,7 +1009,7 @@ knowledge base manually:
 ```powershell
 # Uses the search admin key (or DefaultAzureCredential with Search Service
 # Contributor + Search Index Data Contributor):
-$env:SEARCH_ADMIN_KEY = (az search admin-key show --service-name <search> -g rg-fibreops-demo --query primaryKey -o tsv)
+$env:SEARCH_ADMIN_KEY = (az search admin-key show --service-name <search> -g <resource-group> --query primaryKey -o tsv)
 .\.venv\Scripts\python.exe scripts/provision_foundry_iq.py `
   --endpoint https://<search>.search.windows.net
 ```
@@ -954,7 +1018,7 @@ Then point the app at it (the App Service MI needs `Search Index Data Reader`,
 granted by `scripts/grant-mi-roles.ps1`):
 
 ```powershell
-az webapp config appsettings set -g rg-fibreops-demo -n <webapp> --settings `
+az webapp config appsettings set -g <resource-group> -n <webapp> --settings `
   FOUNDRY_IQ_SEARCH_ENDPOINT=https://<search>.search.windows.net `
   FOUNDRY_IQ_KNOWLEDGE_BASE=fibreops-knowledge-base
 ```

@@ -21,15 +21,18 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("AZURE_AI_PROJECT_ENDPOINT", "FOUNDRY_PROJECT_ENDPOINT"),
     )
     azure_ai_project_connection_string: Optional[str] = Field(default=None, alias="AZURE_AI_PROJECT_CONNECTION_STRING")
-    # Foundry project name (the trailing path segment of the project endpoint,
-    # e.g. ``leestott-1891`` from ``…/api/projects/leestott-1891``). Required
-    # for Voice Live agent-mode URLs. Auto-derived from the endpoint when unset.
+    # Foundry project name (trailing endpoint path segment), also used by
+    # project-scoped agent publishing and connections.
     azure_ai_project_name: Optional[str] = Field(default=None, alias="AZURE_AI_PROJECT_NAME")
-    # Hosted-agent deploys conventionally pass the model as ``MODEL_DEPLOYMENT_NAME``;
-    # accept that alongside ``AZURE_AI_MODEL_DEPLOYMENT``.
+    # Current hosted-agent runtimes inject ``AZURE_AI_MODEL_DEPLOYMENT_NAME``.
+    # Keep the older aliases for local environments created by prior releases.
     azure_ai_model_deployment: str = Field(
-        default="gpt-4.1-mini",
-        validation_alias=AliasChoices("AZURE_AI_MODEL_DEPLOYMENT", "MODEL_DEPLOYMENT_NAME"),
+        default="gpt-5.4-mini",
+        validation_alias=AliasChoices(
+            "AZURE_AI_MODEL_DEPLOYMENT_NAME",
+            "AZURE_AI_MODEL_DEPLOYMENT",
+            "MODEL_DEPLOYMENT_NAME",
+        ),
     )
 
     # Event Hub
@@ -40,35 +43,11 @@ class Settings(BaseSettings):
     # Teams
     teams_webhook_url: Optional[str] = Field(default=None, alias="TEAMS_WEBHOOK_URL")
 
-    # Voice Live (Azure AI Voice Live integration with Foundry Agent Service).
-    # ``azure_voice_live_endpoint`` is the realtime base URL — either an
-    # ``https://<region>.api.cognitive.microsoft.com`` host or a fully-formed
-    # ``wss://...`` WebSocket URL. When set, the UI opens a Voice Live session
-    # via the server-side proxy at ``/ws/voice`` so the browser plays real TTS
-    # audio for "Speak status" and supports duplex mic via "Talk to agent".
-    # When unset, utterances append to ``state/voice_outbox.jsonl`` so the
-    # demo always works offline.
-    azure_voice_live_endpoint: Optional[str] = Field(default=None, alias="AZURE_VOICE_LIVE_ENDPOINT")
-    azure_voice_live_api_key: Optional[str] = Field(default=None, alias="AZURE_VOICE_LIVE_API_KEY")
-    azure_voice_live_voice: Optional[str] = Field(default=None, alias="AZURE_VOICE_LIVE_VOICE")
-    # Voice Live generative model. This is a Voice Live *managed model name*
-    # (e.g. ``gpt-4o-mini``, ``gpt-realtime``, ``gpt-4.1-mini``) — NOT an Azure
-    # OpenAI deployment name. Voice Live models are fully managed and must not
-    # be deployed in the AI Services account. Distinct from
-    # ``azure_ai_model_deployment`` (the chat-completions deployment the agents
-    # use). Defaults to ``gpt-4o-mini`` (Voice Live "basic", supports Azure
-    # standard TTS voices).
-    azure_voice_live_model: str = Field(
-        default="gpt-4o-mini", alias="AZURE_VOICE_LIVE_MODEL"
-    )
-    # Foundry agent the duplex "Talk to agent" session is bound to. Optional
-    # for one-shot TTS; required for duplex mic conversation.
-    azure_voice_live_agent_id: Optional[str] = Field(default=None, alias="AZURE_VOICE_LIVE_AGENT_ID")
-    # Realtime API version string passed as a query parameter on the upstream
-    # WebSocket URL. Override if Microsoft ships a newer Voice Live preview.
-    azure_voice_live_api_version: str = Field(
-        default="2026-04-10", alias="AZURE_VOICE_LIVE_API_VERSION"
-    )
+    # The separate Foundry voice agent owns speech, model and tool configuration.
+    # An empty name keeps the offline browser TTS / local outbox demo available.
+    azure_voice_agent_name: Optional[str] = Field(default=None, alias="AZURE_VOICE_AGENT_NAME")
+    azure_voice_agent_version: Optional[str] = Field(default=None, alias="AZURE_VOICE_AGENT_VERSION")
+    azure_voice_agent_voice: str = Field(default="en-GB-RyanNeural", alias="AZURE_VOICE_AGENT_VOICE")
 
     # Foundry IQ — knowledge grounding (BRK241 slide 4 / slide 9).
     # Two endpoints, both optional, both POST {query, limit} -> {results:[...]}.
@@ -103,12 +82,12 @@ class Settings(BaseSettings):
     foundry_memory_store_name: Optional[str] = Field(default=None, alias="FOUNDRY_MEMORY_STORE_NAME")
     foundry_memory_scope: Optional[str] = Field(default=None, alias="FOUNDRY_MEMORY_SCOPE")
 
-    # Foundry Toolbox (BRK241 slide 5 / slide 9). When true, the factory curates
-    # each role's tool surface through ``agent_framework_foundry.select_toolbox_tools``
-    # so hosted Foundry toolbox tools (web search, code interpreter, MCP, …) can be
-    # mixed with the in-process Python tools. Off by default — the in-process tools
-    # keep the demo fully offline.
+    # Foundry Toolbox (BRK241 slide 5 / slide 9). When true, the factory attaches
+    # the configured toolbox MCP endpoint through ``FoundryToolbox`` so hosted
+    # tools can be mixed with the in-process Python tools. Off by default.
     foundry_toolbox_enabled: bool = Field(default=False, alias="FIBREOPS_FOUNDRY_TOOLBOX")
+    foundry_toolbox_endpoint: Optional[str] = Field(default=None, alias="TOOLBOX_ENDPOINT")
+    foundry_toolbox_name: Optional[str] = Field(default=None, alias="TOOLBOX_NAME")
 
     # Agent Optimizer / Foundry Evals (BRK241 slide 5 / slide 15). When true, the
     # optimiser runs the cloud evaluators (``FoundryEvals`` / ``evaluate_traces``)
@@ -175,7 +154,7 @@ class Settings(BaseSettings):
 
     @property
     def voice_live_enabled(self) -> bool:
-        return bool(self.azure_voice_live_endpoint)
+        return bool(self.azure_ai_project_endpoint and self.azure_voice_agent_name)
 
     @property
     def web_iq_enabled(self) -> bool:

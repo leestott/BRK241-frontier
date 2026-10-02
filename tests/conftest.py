@@ -16,6 +16,7 @@ import pytest
 _AZURE_ENVS = (
     "AZURE_AI_PROJECT_ENDPOINT",
     "FOUNDRY_PROJECT_ENDPOINT",
+    "FIBREOPS_PUBLISHED_AGENTS",
     "MODEL_DEPLOYMENT_NAME",
     "AZURE_AI_PROJECT_CONNECTION_STRING",
     "EVENT_HUB_FQDN",
@@ -33,6 +34,11 @@ def _hermetic_env(monkeypatch: pytest.MonkeyPatch) -> None:
     # Settings is lru_cached; flush so the new env wins.
     from fibreops import config
 
+    monkeypatch.setattr(
+        config.Settings,
+        "model_config",
+        {**config.Settings.model_config, "env_file": None},
+    )
     config.get_settings.cache_clear()
 
 

@@ -22,7 +22,7 @@
     discovers the first ACR in -ResourceGroup.
 
 .PARAMETER ResourceGroup
-    Resource group containing the ACR. Default: rg-fibreops-demo
+    Resource group containing the ACR. Defaults to AZURE_RESOURCE_GROUP.
 
 .PARAMETER ImageRepository
     Image repository name. Default: fibreops-outage-response
@@ -37,7 +37,7 @@
     Skip the ACR build/push and deploy the existing image:tag as-is.
 
 .EXAMPLE
-    pwsh scripts/deploy-hosted-agent.ps1 -RegistryName fbreopsacr12345678 -ResourceGroup rg-fibreops-demo
+    pwsh scripts/deploy-hosted-agent.ps1 -RegistryName <acr-name> -ResourceGroup <resource-group>
 
 .EXAMPLE
     # Deploy a pre-built image without rebuilding
@@ -45,7 +45,7 @@
 #>
 param(
     [string]$RegistryName    = "",
-    [string]$ResourceGroup   = "rg-fibreops-demo",
+    [string]$ResourceGroup   = $env:AZURE_RESOURCE_GROUP,
     [string]$ImageRepository = "fibreops-outage-response",
     [string]$Tag             = "",
     [switch]$NoWait,
@@ -53,6 +53,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if (-not $ResourceGroup) {
+    throw "Set AZURE_RESOURCE_GROUP or pass -ResourceGroup."
+}
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $dockerfile = Join-Path $repoRoot "src/fibreops/agents/Dockerfile.hosted"
@@ -81,34 +84,28 @@ Write-Host "Target image: $image" -ForegroundColor Green
 
 if (-not $SkipBuild) {
     Write-Host "Building x86_64 image in ACR (no local Docker needed)..." -ForegroundColor Cyan
-    # On Windows, `az acr build`'s log streaming can crash with
-    # "UnicodeEncodeError: 'charmap' codec" (cp1252) when the build output
-    # contains Unicode (e.g. pip progress). That is a client-side log-streaming
-    # bug only — the ACR build itself still runs server-side. Force UTF-8 for the
-    # az subprocess and capture logs to a file so a console-encoding crash cannot
-    # fail the deploy; then verify the real outcome via the ACR run status.
-    $prevPyUtf8 = $env:PYTHONUTF8
-    $prevPyEnc  = $env:PYTHONIOENCODING
-    $env:PYTHONUTF8 = '1'
-    $env:PYTHONIOENCODING = 'utf-8'
+    # Windows Azure CLI can crash while streaming Unicode build logs even when
+    # Python UTF-8 flags are set. Queue without log streaming, then wait for
+    # the uniquely tagged image to appear before registering the agent.
     $buildLog = Join-Path ([System.IO.Path]::GetTempPath()) "acr-build-$Tag.log"
     az acr build `
         --registry $RegistryName `
         --platform linux/amd64 `
         --image "$($ImageRepository):$Tag" `
         --file $dockerfile `
+        --no-logs --no-wait `
         $repoRoot *> $buildLog
     $buildExit = $LASTEXITCODE
-    $env:PYTHONUTF8 = $prevPyUtf8
-    $env:PYTHONIOENCODING = $prevPyEnc
-
-    # Trust the server-side result over the (possibly crashing) client. Confirm
-    # the tag now exists in the registry before continuing.
-    $pushed = az acr repository show-tags --name $RegistryName --repository $ImageRepository --query "[?@=='$Tag'] | [0]" -o tsv 2>$null
+    if ($buildExit -ne 0) {
+        throw "Failed to queue ACR build (exit $buildExit). See $buildLog."
+    }
+    $pushed = $null
+    for ($attempt = 0; $attempt -lt 80 -and -not $pushed; $attempt++) {
+        $pushed = az acr repository show-tags --name $RegistryName --repository $ImageRepository --query "[?@=='$Tag'] | [0]" -o tsv 2>$null
+        if (-not $pushed) { Start-Sleep -Seconds 15 }
+    }
     if (-not $pushed) {
-        Write-Host "  build log: $buildLog" -ForegroundColor DarkGray
-        Get-Content $buildLog -Tail 20 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
-        throw "az acr build did not produce image tag '$Tag' (exit $buildExit). See $buildLog."
+        throw "ACR build did not produce image tag '$Tag' within 20 minutes. Inspect ACR task runs and $buildLog."
     }
     Write-Host "  pushed $image" -ForegroundColor Green
 }

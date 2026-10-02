@@ -1,19 +1,11 @@
-"""FibreOps tool surface for the Voice Live realtime agent.
+"""FibreOps tool surface for the Foundry voice agent.
 
 Provides:
-  * ``INSTRUCTIONS`` — system prompt that turns the realtime model into a
-    FibreOps NOC copilot.
-  * ``TOOL_DEFINITIONS`` — OpenAI realtime ``tools`` schema (function tools)
-    advertised to the upstream model in the ``session.update`` payload.
+  * ``INSTRUCTIONS`` and ``TOOL_DEFINITIONS`` — shared publisher definition.
   * ``dispatch`` — coroutine that executes a tool call and returns the
     JSON-serialisable string the model expects in ``function_call_output``.
 
-The proxy in ``voice_live/__init__.py`` is responsible for:
-  1. Injecting these into the first ``session.update`` it forwards upstream.
-  2. Watching for ``response.function_call_arguments.done`` events from
-     upstream, calling :func:`dispatch`, and replying with
-     ``conversation.item.create`` (``function_call_output``) +
-     ``response.create``.
+The proxy handles function calls advertised on the published voice agent.
 """
 from __future__ import annotations
 
@@ -26,125 +18,9 @@ from ..observability import get_logger
 logger = get_logger(__name__)
 
 
-INSTRUCTIONS = (
-    "You are FibreOps NOC Copilot — a calm, concise voice assistant for "
-    "network operations engineers responding to fibre outages. You speak "
-    "in a polite British English style, keep replies short (under 30 "
-    "seconds of speech), and use the tools provided to look up real "
-    "incident, node, and SOP data instead of guessing. When asked about "
-    "the latest incidents, call list_recent_incidents. When given a "
-    "specific incident or run id (e.g. 'INC-1042' or 'run_8f3...'), call "
-    "lookup_incident. When asked about a node (e.g. 'FN-204'), call "
-    "lookup_node. When the engineer wants the playbook for a signal "
-    "type, call lookup_sop. When asked to notify the team or escalate, "
-    "call notify_teams. After a tool returns, summarise the result in "
-    "natural speech — never read raw JSON aloud."
-)
-
-
-TOOL_DEFINITIONS: list[dict[str, Any]] = [
-    {
-        "type": "function",
-        "name": "list_recent_incidents",
-        "description": (
-            "List the most recent FibreOps incidents (run records) ordered "
-            "newest first. Use this when the engineer asks 'what's "
-            "happening', 'any active outages', 'show recent incidents'."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer",
-                    "description": "Number of incidents to return (1-10).",
-                    "minimum": 1,
-                    "maximum": 10,
-                },
-            },
-            "required": [],
-        },
-    },
-    {
-        "type": "function",
-        "name": "lookup_incident",
-        "description": (
-            "Return full detail for a single incident by incident id "
-            "(e.g. INC-1042) or run id."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "description": "Incident id (INC-…) or run id.",
-                },
-            },
-            "required": ["id"],
-        },
-    },
-    {
-        "type": "function",
-        "name": "lookup_node",
-        "description": (
-            "Return topology metadata for a fibre node (region, site, "
-            "customers served, parent links) given its node id, e.g. FN-204."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "node_id": {
-                    "type": "string",
-                    "description": "Fibre node id, e.g. FN-204.",
-                },
-            },
-            "required": ["node_id"],
-        },
-    },
-    {
-        "type": "function",
-        "name": "lookup_sop",
-        "description": (
-            "Return the standard operating procedure for a signal type. "
-            "Valid signal types: loss_of_light, node_unreachable, "
-            "high_attenuation, ber_degradation."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "signal_type": {
-                    "type": "string",
-                    "description": "Signal type keyword.",
-                },
-            },
-            "required": ["signal_type"],
-        },
-    },
-    {
-        "type": "function",
-        "name": "notify_teams",
-        "description": (
-            "Post a status update to the NOC Microsoft Teams channel. "
-            "Use only when the engineer explicitly asks to notify, "
-            "escalate, or post an update. The post is queued to the local "
-            "outbox when no webhook is configured."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "incident_id": {"type": "string"},
-                "status": {
-                    "type": "string",
-                    "description": "Short status label, e.g. 'Engineer dispatched'.",
-                },
-                "note": {
-                    "type": "string",
-                    "description": "Free-text note for the update body.",
-                },
-            },
-            "required": ["incident_id", "status", "note"],
-        },
-    },
-]
+_DEFINITION = json.loads((Path(__file__).with_name("definition.json")).read_text(encoding="utf-8"))
+INSTRUCTIONS: str = _DEFINITION["instructions"]
+TOOL_DEFINITIONS: list[dict[str, Any]] = _DEFINITION["tools"]
 
 
 _RUNS_PATH = Path("state") / "runs.jsonl"
