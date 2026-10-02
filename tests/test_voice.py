@@ -1,8 +1,6 @@
-"""Voice Live integration tests.
+"""Foundry voice-agent announcement tests.
 
-Covers the local outbox path (default) plus the configured webhook path with
-a stubbed httpx client, the orchestrator opt-in flag, and the UI action that
-speaks for the latest incident.
+Covers the local outbox, orchestrator opt-in and UI announcement.
 """
 from __future__ import annotations
 
@@ -14,7 +12,6 @@ from fastapi.testclient import TestClient
 
 import fibreops.ui.app as ui_module
 from fibreops.tools import speak_status_update
-from fibreops.tools import voice as voice_module
 
 
 def _voice_path(state: Path) -> Path:
@@ -66,41 +63,14 @@ def test_speak_status_update_unknown_phrase_raises(chdir_state_tmp: Path) -> Non
         speak_status_update(incident_id="INC-X", phrase="not_a_real_phrase")
 
 
-def test_speak_status_update_uses_configured_endpoint(
+def test_speak_status_update_uses_outbox_even_with_voice_agent(
     chdir_state_tmp: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("AZURE_VOICE_LIVE_ENDPOINT", "https://voice.example.com/synthesize")
-    monkeypatch.setenv("AZURE_VOICE_LIVE_API_KEY", "abc123")
-    monkeypatch.setenv("AZURE_VOICE_LIVE_VOICE", "en-GB-SoniaNeural")
+    monkeypatch.setenv("AZURE_VOICE_AGENT_NAME", "fibreops-noc-voice")
+    monkeypatch.setenv("AZURE_VOICE_AGENT_VOICE", "en-GB-SoniaNeural")
     from fibreops import config
 
     config.get_settings.cache_clear()
-
-    captured: dict[str, object] = {}
-
-    class _FakeResp:
-        status_code = 202
-
-        def raise_for_status(self) -> None:
-            return None
-
-    class _FakeClient:
-        def __init__(self, *_, **__):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_):
-            return False
-
-        def post(self, url, json, headers):  # noqa: A002 - mirror httpx API
-            captured["url"] = url
-            captured["json"] = json
-            captured["headers"] = headers
-            return _FakeResp()
-
-    monkeypatch.setattr(voice_module.httpx, "Client", _FakeClient)
 
     out = speak_status_update(
         incident_id="INC-009",
@@ -112,15 +82,9 @@ def test_speak_status_update_uses_configured_endpoint(
         probable_cause="splice degradation",
     )
 
-    assert captured["url"] == "https://voice.example.com/synthesize"
-    assert captured["headers"]["Ocp-Apim-Subscription-Key"] == "abc123"
-    sent = captured["json"]
-    assert sent["voice"] == "en-GB-SoniaNeural"
-    assert sent["incident_id"] == "INC-009"
-    assert out["delivery"]["status"] == "sent"
-    # The outbox is always written (the UI reads data-latest-text from it) in
-    # addition to the server-side POST when an endpoint is configured.
-    assert _voice_path(chdir_state_tmp / "state").exists()
+    assert out["voice"] == "en-GB-SoniaNeural"
+    assert out["delivery"]["status"] == "logged-locally"
+    assert len(_voice_path(chdir_state_tmp / "state").read_text(encoding="utf-8").splitlines()) == 1
 
 
 def test_local_agent_emits_voice_when_enabled(

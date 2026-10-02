@@ -2,7 +2,8 @@
 __pycache__/
 *.pyc
 .env
-.env.local
+.env.*
+!.env.example
 *.egg-info/
 build/
 # Python build output at the repo root only — anchored so it does NOT match the
@@ -13,13 +14,11 @@ build/
 .coverage
 .azure/
 
-# state/ holds ephemeral runtime data (jsonl logs, sqlite memory, mock D365 store).
-# We ignore the whole directory, then whitelist the published-agents registry
-# so the Dockerfile can bake it into the image. `demo publish` overwrites it
-# locally with the deployer's own versioned agents.
+# state/ holds ephemeral runtime data, including environment-specific published
+# agent versions. Never commit the registry or bake it into an image.
 state/*
-!state/foundry_agents.json
 
 # Stray local logs (azd, acr build streams, etc.) — never commit
 *.log
 azd-*.log
+.venv-voice/

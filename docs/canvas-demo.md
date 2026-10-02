@@ -5,7 +5,7 @@ turn a production defect on the deployed NOC console into a verified fix —
 without leaving the Copilot session. It uses two canvases: **Browser** (the live
 Azure site) and **Terminal** (probes + tests).
 
-- **Live site:** https://fbreops-noc-gkrykk.azurewebsites.net/
+- **Live site:** Set `AZURE_APP_SERVICE_URL` in your local azd environment.
 - **Persona:** NOC platform engineer debugging a garbled agent decision in prod.
 - **Skills shown:** Browser canvas, Terminal canvas, repo edit, test validation.
 

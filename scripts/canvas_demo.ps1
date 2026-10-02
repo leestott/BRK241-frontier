@@ -9,11 +9,14 @@
   ./scripts/canvas_demo.ps1 -Serve     # also serve the console locally on :8800
 #>
 param(
-  [string]$LiveUrl = "https://fbreops-noc-gkrykk.azurewebsites.net",
+  [string]$LiveUrl = $env:AZURE_APP_SERVICE_URL,
   [switch]$Serve
 )
 
 $ErrorActionPreference = "Stop"
+if (-not $LiveUrl) {
+  throw "Set AZURE_APP_SERVICE_URL or pass -LiveUrl."
+}
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
 Write-Host "== 1. Live health ==" -ForegroundColor Cyan
