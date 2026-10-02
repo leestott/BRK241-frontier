@@ -109,8 +109,6 @@ sees everything live in the NOC Console ②.
 
 ![High-level Foundry voice-agent scenario](./docs/images/architecture.png)
 
-> Regenerate with `python scripts/gen_scenario_architecture.py`.
-
 ## NOC console preview
 
 The deployed application is a tactical Network Operations Center wallboard
