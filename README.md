@@ -215,7 +215,7 @@ Layout:
 | **`[03·TOPO]`**     | Node grid coloured by severity, dispatched outline, click-to-jump-to-detail, severity legend |
 | **`[04·OPTIMISER]`** | Average rubric score, per-criterion bars, top suggestions   |
 | **`[05·TEAMS]`**    | Flattened Adaptive Card preview (polled every 5 s)          |
-| **`[06·VOICE]`**    | Voice-agent announcement outbox (utterance, voice, severity) |
+| **`[06·VOICE]`**    | Voice-agent announcement outbox; reports failed reads and incomplete records rather than silently showing an empty panel |
 | **`[07·IQ]`**       | Foundry IQ knowledge-base lookups when configured, otherwise deterministic Web/Work IQ fixtures; optional legacy HTTP connectors can provide additional context |
 
 Action buttons:
@@ -224,7 +224,15 @@ Action buttons:
 - **Inject CRITICAL ×3** — push three signals including a forced `CRITICAL` event
 - **Start / Stop simulation** — continuous injection on a 10 s loop
 - **Run optimiser** — score the latest runs and refresh suggestions
-- **Reset state** — truncate `runs.jsonl`, `traces.jsonl`, `teams_outbox.jsonl`, and the D365 store
+- **Options → Reset state** — confirm before clearing runs, traces, voice and
+  Teams outboxes, IQ lookups, and the D365 store
+
+The incident list selects the newest critical run (or the newest run if none
+is critical) when it first loads. Clicking another run retains that selection
+across polling. Cards show severity, dispatch state and elapsed time first;
+the full summary remains available in the detail panel. Action progress and
+failures appear in a separate status message from the voice-agent connection
+state.
 
 There is also a small JSON API for scripting (`/api/runs`, `/api/optimiser`)
 and a `/healthz` endpoint for liveness probes.

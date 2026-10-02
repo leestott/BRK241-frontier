@@ -97,15 +97,52 @@ def _load_teams_outbox(limit: int = 10) -> list[dict[str, Any]]:
     return list(reversed(cards))[:limit]
 
 
-def _load_voice_outbox(limit: int = 10) -> list[dict[str, Any]]:
-    if not VOICE_OUTBOX.exists():
-        return []
-    utterances = [
-        json.loads(line)
-        for line in VOICE_OUTBOX.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-    return list(reversed(utterances))[:limit]
+def _load_voice_outbox(limit: int = 10) -> tuple[list[dict[str, Any]], bool]:
+    try:
+        lines = VOICE_OUTBOX.read_text(encoding="utf-8", errors="replace").splitlines()
+    except FileNotFoundError:
+        return [], False
+
+    utterances: list[dict[str, Any]] = []
+    invalid = 0
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            invalid += 1
+            continue
+        if not isinstance(entry, dict) or not all(
+            isinstance(entry.get(key), str)
+            for key in ("ts", "incident_id", "phrase", "voice", "text", "severity")
+        ):
+            invalid += 1
+            continue
+        utterances.append(entry)
+    if invalid:
+        logger.warning("voice outbox contains %d incomplete or invalid records", invalid)
+    return list(reversed(utterances))[:limit], bool(invalid)
+
+
+def _render_voice_partial(request: Request) -> HTMLResponse:
+    try:
+        utterances, invalid = _load_voice_outbox()
+    except OSError:
+        logger.exception("unable to read voice outbox")
+        return HTMLResponse(
+            '<p class="panel-error" role="alert">Voice updates are temporarily unavailable. Please retry.</p>',
+            status_code=503,
+        )
+    response = templates.TemplateResponse(
+        request, "partials/voice.html", {"utterances": utterances}
+    )
+    if invalid:
+        return HTMLResponse(
+            response.body
+            + b'<p class="panel-error" role="alert">Some voice updates could not be loaded. Please retry shortly.</p>'
+        )
+    return response
 
 
 def _load_iq_lookups(limit: int = 10) -> list[dict[str, Any]]:
@@ -448,10 +485,7 @@ def create_app() -> FastAPI:
 
     @app.get("/partials/voice", response_class=HTMLResponse)
     async def partial_voice(request: Request) -> HTMLResponse:
-        utterances = _load_voice_outbox()
-        return templates.TemplateResponse(
-            request, "partials/voice.html", {"utterances": utterances}
-        )
+        return _render_voice_partial(request)
 
     @app.get("/partials/iq", response_class=HTMLResponse)
     async def partial_iq(request: Request) -> HTMLResponse:
@@ -489,10 +523,7 @@ def create_app() -> FastAPI:
                     customers=r.get("customers_served", 0),
                     probable_cause=analysis.get("probable_cause", "investigating"),
                 )
-        utterances = _load_voice_outbox()
-        return templates.TemplateResponse(
-            request, "partials/voice.html", {"utterances": utterances}
-        )
+        return _render_voice_partial(request)
 
     @app.get("/partials/sim", response_class=HTMLResponse)
     async def partial_sim(request: Request) -> HTMLResponse:

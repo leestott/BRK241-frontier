@@ -159,7 +159,7 @@
       case "response.done":
       case "response.completed":
         if (mode === "speak") {
-          setStatus("Idle", "info");
+          setStatus("Voice idle", "info");
           mode = "idle";
           try { ws && ws.close(); } catch {}
         }
@@ -183,7 +183,7 @@
                 voices.find((v) => v.lang.startsWith("en"));
     if (gb) utt.voice = gb;
     utt.onstart = () => setStatus("Speaking…", "ok");
-    utt.onend = () => setStatus("Idle", "info");
+    utt.onend = () => setStatus("Voice idle", "info");
     utt.onerror = () => setStatus("Speech error", "error");
     window.speechSynthesis.speak(utt);
     return true;
@@ -292,7 +292,7 @@
     }
     mode = "idle";
     micActive = false;
-    setStatus("Idle", "info");
+    setStatus("Voice idle", "info");
     updateMicButton(false);
   }
 
