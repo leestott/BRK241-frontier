@@ -17,7 +17,7 @@ cd <path-to-this-repo>
 
 # 2) Make sure the .env is filled in
 #    AZURE_AI_PROJECT_ENDPOINT=https://<acct>.services.ai.azure.com/api/projects/<proj>
-#    AZURE_AI_MODEL_DEPLOYMENT=gpt-4.1-mini   (or whatever deployment you have)
+#    AZURE_AI_MODEL_DEPLOYMENT=gpt-5.4-mini   (or whatever deployment you have)
 #    TEAMS_WEBHOOK_URL=https://...           (Power Automate / channel webhook)
 #    EVENT_HUB_FQDN=<ns>.servicebus.windows.net
 #    EVENT_HUB_NAME=fibre-signals
@@ -280,21 +280,19 @@ Suggested narration overlay:
   Routine, the same three deterministic steps every time."*
 - **Act 3 (Teams)** — point at the *Teams card preview* pane (auto-polled
   every 5 s) — the same Adaptive Card payload that landed in the channel.
-- **Act 3b (Voice Live)** — click **🔊 Speak status**. The *Voice Live updates*
+- **Act 3b (Foundry Voice Agent Preview)** — click **🔊 Speak status**. The *Voice updates*
   pane shows the SSML utterance the on-call operator would hear, with the
   voice and severity styling that matches the incident. When
-  `AZURE_VOICE_LIVE_ENDPOINT` (+ `AZURE_VOICE_LIVE_API_KEY`) is configured,
-  the browser also opens a one-shot Voice Live realtime session and **plays
-  the audio through your speakers** — no extra service needed. `azd up`
-  provisions an Azure AI Services (Speech) account and wires both values
-  automatically (key stored in Key Vault, exposed to the App Service via a
-  `@Microsoft.KeyVault(...)` reference). Set `PROVISION_VOICE_LIVE=false`
-  before `azd up` to bring your own.
-- **Act 3c (Talk to agent)** — set `AZURE_VOICE_LIVE_AGENT_ID` to a published
-  Foundry agent and click **🎙️ Talk to agent**. The browser captures your
-  microphone, streams PCM16/24 kHz audio over the Voice Live realtime WS
-  (proxied via `/ws/voice` so the API key stays server-side), and plays the
-  agent's spoken reply back. Click **🛑 Stop talking** to end the session.
+  `AZURE_VOICE_AGENT_NAME` is configured after publishing a distinct
+  `kind: voice` agent, the browser opens a Foundry realtime voice session
+  and **plays the spoken update**. Otherwise browser speech synthesis
+  supplies an offline fallback.
+- **Act 3c (Talk to agent)** — publish the separate Foundry Voice Agent
+  Preview and click **🎙️ Talk to agent**. The browser captures your microphone,
+  streams PCM16/24 kHz audio through `/ws/voice` to the Foundry project
+  voice-agent protocol, and plays the reply. Entra authentication stays
+  server-side. Click **🛑 Stop talking** to end the session. This preview
+  does not have a production SLA.
 - **Act 4 (optimiser)** — click **Run optimiser**. The middle column shows
   the average score, per-criterion bars, and improvement suggestions.
 - **Act 5 (autonomy)** — toggle **Start simulation**. New incidents stream
@@ -326,7 +324,6 @@ can flip between terminal and browser freely and they always agree.
 | Function tools        | Real Python in-process | Identical                                      |
 | Ticketing             | FastAPI mock D365      | Dataverse v9.2 (change `D365_MOCK_BASE_URL`)   |
 | Teams                 | **Real webhook**       | Identical                                      |
-| Voice                 | SSML outbox (`state/voice_outbox.jsonl`) | **Azure AI Voice Live** (`AZURE_VOICE_LIVE_ENDPOINT`) |
+| Voice                 | SSML outbox (`state/voice_outbox.jsonl`) | **Foundry Voice Agent Preview** (`AZURE_VOICE_AGENT_NAME`) |
 | Evaluation            | Local rubric + JSONL   | + Foundry Evals (`FoundryEvals` is in the SDK) |
 | Tracing               | OpenTelemetry → Application Insights | Identical                                |
-

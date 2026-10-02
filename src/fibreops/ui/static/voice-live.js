@@ -1,10 +1,10 @@
-/* Voice Live realtime client.
+/* Foundry Voice Agent Preview realtime client.
  *
- * Talks the OpenAI-Realtime-compatible event protocol that Azure Voice Live
- * exposes, through the server-side proxy at /ws/voice. Two entry points:
+ * Talks the Foundry voice protocol through the server-side proxy at /ws/voice.
+ * The agent definition owns the voice, instructions, model and tools.
  *
- *   voiceLive.speak(text, opts)   — one-shot TTS for the "Speak status" button.
- *   voiceLive.toggleMic()         — duplex mic for the "Talk to agent" button.
+ *   voiceAgent.speak(text)     — spoken incident announcement.
+ *   voiceAgent.toggleMic()     — duplex mic for "Talk to agent".
  *
  * Audio out: PCM16 mono @ 24 kHz, decoded via WebAudio.
  * Audio in:  mic captured via getUserMedia, downsampled+encoded to PCM16
@@ -13,8 +13,9 @@
 (function () {
   const SAMPLE_RATE = 24000;
 
-  let session = null;        // {enabled, ws_path, voice, agent_id, duplex_enabled}
+  let session = null;        // {enabled, ws_path, agent_name, duplex_enabled}
   let ws = null;
+  let wsReady = null;
   let audioCtx = null;
   let nextPlayTime = 0;
   let mode = "idle";          // "idle" | "speak" | "mic"
@@ -93,62 +94,49 @@
       const r = await fetch("/api/voice/session");
       session = await r.json();
     } catch (e) {
-      session = { enabled: false };
+      setStatus("Cannot load voice-agent configuration", "error");
+      throw e;
     }
     return session;
   }
 
   function ensureWs() {
-    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-      return Promise.resolve(ws);
-    }
+    if (wsReady && ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return wsReady;
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const url = proto + "//" + location.host + session.ws_path;
     ws = new WebSocket(url);
-    return new Promise((resolve, reject) => {
+    wsReady = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        setStatus("Voice agent did not become ready", "error");
+        ws.close();
+        reject(new Error("Voice session timeout"));
+      }, 30000);
       ws.binaryType = "arraybuffer";
-      ws.onopen = () => {
-        sendSessionUpdate();
-        resolve(ws);
-      };
+      ws.onopen = () => setStatus("Waiting for voice agent…", "info");
       ws.onerror = (e) => {
-        setStatus("Voice Live error", "error");
+        clearTimeout(timeout);
+        setStatus("Voice agent error", "error");
         reject(e);
       };
       ws.onclose = () => {
-        if (mode !== "idle") setStatus("Voice Live disconnected", "warn");
+        clearTimeout(timeout);
+        if (mode !== "idle") setStatus("Voice agent disconnected", "warn");
+        if (wsReady) reject(new Error("Voice agent disconnected"));
         mode = "idle";
         ws = null;
+        wsReady = null;
       };
-      ws.onmessage = onMessage;
+      ws.onmessage = (event) => {
+        onMessage(event);
+        try {
+          if (JSON.parse(event.data).type === "session.updated") {
+            clearTimeout(timeout);
+            resolve(ws);
+          }
+        } catch {}
+      };
     });
-  }
-
-  function sendSessionUpdate() {
-    // Voice must be a structured object for Voice Live API
-    const voiceObj = session.agent_id
-      ? session.voice  // custom agent may override voice config
-      : { name: session.voice, type: session.voice_type || "azure-standard" };
-    const sess = {
-      modalities: mode === "mic" ? ["audio", "text"] : ["audio"],
-      voice: voiceObj,
-      input_audio_format: "pcm16",
-      output_audio_format: "pcm16",
-      input_audio_sampling_rate: 24000,
-    };
-    if (mode === "mic") {
-      // Mic-only fields. server_echo_cancellation requires turn detection.
-      sess.turn_detection = {
-        type: "azure_semantic_vad",
-        threshold: 0.5,
-        prefix_padding_ms: 300,
-        silence_duration_ms: 500,
-      };
-      sess.input_audio_noise_reduction = { type: "azure_deep_noise_suppression" };
-      sess.input_audio_echo_cancellation = { type: "server_echo_cancellation" };
-      sess.input_audio_transcription = { model: "azure-speech", language: "en" };
-    }
-    send({ type: "session.update", session: sess });
+    return wsReady;
   }
 
   function send(obj) {
@@ -160,7 +148,6 @@
     let msg;
     try { msg = JSON.parse(evt.data); } catch { return; }
     switch (msg.type) {
-      case "session.created":
       case "session.updated":
         if (mode === "speak") setStatus("Speaking…", "ok");
         if (mode === "mic") setStatus("Listening — speak now", "ok");
@@ -178,8 +165,8 @@
         }
         break;
       case "error":
-        console.error("Voice Live error", msg);
-        setStatus("Voice Live: " + (msg.error?.message || "error"), "error");
+        console.error("Voice agent error", msg);
+        setStatus("Voice agent: " + (msg.error?.message || "error"), "error");
         break;
     }
   }
@@ -202,11 +189,10 @@
     return true;
   }
 
-  async function speak(text, opts) {
-    opts = opts || {};
+  async function speak(text) {
     await loadSession();
     if (!session.enabled) {
-      // No Voice Live endpoint — use browser built-in TTS as demo fallback.
+      // Offline demo: no published voice agent, use local browser speech.
       return speakBrowserTts(text);
     }
     if (!text || !text.trim()) return false;
@@ -223,13 +209,10 @@
       item: {
         type: "message",
         role: "user",
-        content: [{ type: "input_text", text: text }],
+        content: [{ type: "input_text", text: "Read this NOC status update aloud without adding facts: " + text }],
       },
     });
-    send({
-      type: "response.create",
-      response: { modalities: ["audio"], instructions: opts.instructions || null },
-    });
+    send({ type: "response.create" });
     return true;
   }
 
@@ -244,11 +227,11 @@
   async function startMic() {
     await loadSession();
     if (!session.enabled) {
-      setStatus("Talk to agent requires AZURE_VOICE_LIVE_ENDPOINT", "warn");
+      setStatus("Talk to agent requires a published Foundry voice agent", "warn");
       return;
     }
     if (!session.duplex_enabled) {
-      setStatus("Talk to agent requires AZURE_VOICE_LIVE_AGENT_ID", "warn");
+      setStatus("Talk to agent requires AZURE_VOICE_AGENT_NAME", "warn");
       return;
     }
     let stream;
@@ -260,7 +243,10 @@
     }
     mode = "mic";
     setStatus("Connecting mic…", "info");
-    try { await ensureWs(); } catch { return; }
+    try { await ensureWs(); } catch {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
     const ctx = getCtx();
     const source = ctx.createMediaStreamSource(stream);
     const proc = ctx.createScriptProcessor(4096, 1, 1);
@@ -302,7 +288,6 @@
       mic = null;
     }
     if (ws && ws.readyState === WebSocket.OPEN) {
-      send({ type: "input_audio_buffer.commit" });
       try { ws.close(); } catch {}
     }
     mode = "idle";
@@ -324,7 +309,7 @@
   }
 
   // Public API.
-  window.voiceLive = { speak, speakLatest, startMic, stopMic, toggleMic, loadSession };
+  window.voiceAgent = { speak, speakLatest, startMic, stopMic, toggleMic, loadSession };
 
   // After the voice partial swaps in (i.e. after "Speak status"), play the
   // newest utterance through Voice Live if configured.

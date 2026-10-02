@@ -186,7 +186,7 @@ def run_foundry_evals(lookback_hours: int = 24) -> dict[str, Any] | None:
         logger.warning("foundry evals enabled but AZURE_AI_PROJECT_ENDPOINT not set; skipping")
         return None
     try:
-        from agent_framework_foundry import FoundryEvals, evaluate_traces
+        from agent_framework.foundry import FoundryEvals, evaluate_traces
         from azure.ai.projects import AIProjectClient
         from azure.identity import DefaultAzureCredential
     except Exception as exc:  # pragma: no cover - optional cloud deps

@@ -6,15 +6,19 @@
     "location":                { "value": "${AZURE_LOCATION=swedencentral}" },
     "containerImageName":      { "value": "${SERVICE_FIBREOPS_NOC_IMAGE_NAME=mcr.microsoft.com/k8se/quickstart:latest}" },
     "azureAiProjectEndpoint":  { "value": "${AZURE_AI_PROJECT_ENDPOINT=}" },
-    "azureAiModelDeployment":  { "value": "${AZURE_AI_MODEL_DEPLOYMENT=gpt-4.1-mini}" },
+    "azureAiModelDeployment":  { "value": "${AZURE_AI_MODEL_DEPLOYMENT=gpt-5.4-mini}" },
+    "azureVoiceAgentName":     { "value": "${AZURE_VOICE_AGENT_NAME=}" },
+    "azureVoiceAgentVersion":  { "value": "${AZURE_VOICE_AGENT_VERSION=}" },
+    "azureVoiceAgentVoice":    { "value": "${AZURE_VOICE_AGENT_VOICE=en-GB-RyanNeural}" },
+    "entraClientId":           { "value": "${FIBREOPS_AAD_CLIENT_ID}" },
+    "entraClientSecret":       { "value": "${FIBREOPS_AAD_CLIENT_SECRET}" },
+    "entraAllowedUserObjectId":{ "value": "${FIBREOPS_ALLOWED_USER_OBJECT_ID}" },
     "fibreopsAgentBackend":    { "value": "${FIBREOPS_AGENT_BACKEND=hosted}" },
     "azureVoiceLiveEndpoint":  { "value": "${AZURE_VOICE_LIVE_ENDPOINT=}" },
     "azureVoiceLiveApiKey":    { "value": "${AZURE_VOICE_LIVE_API_KEY=}" },
-    "azureVoiceLiveVoice":     { "value": "${AZURE_VOICE_LIVE_VOICE=}" },
-    "azureVoiceLiveAgentId":   { "value": "${AZURE_VOICE_LIVE_AGENT_ID=}" },
-    "azureVoiceLiveApiVersion":{ "value": "${AZURE_VOICE_LIVE_API_VERSION=2025-05-01-preview}" },
     "provisionVoiceLive":      { "value": "${PROVISION_VOICE_LIVE=true}" },
     "voiceLiveLocation":       { "value": "${AZURE_VOICE_LIVE_LOCATION=}" },
-    "voiceLiveSku":            { "value": "${AZURE_VOICE_LIVE_SKU=S0}" }
+    "voiceLiveSku":            { "value": "${AZURE_VOICE_LIVE_SKU=S0}" },
+    "searchLocation":         { "value": "${AZURE_SEARCH_LOCATION=}" }
   }
 }

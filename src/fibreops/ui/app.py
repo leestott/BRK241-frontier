@@ -365,14 +365,14 @@ def create_app() -> FastAPI:
 
     @app.get("/api/voice/session")
     async def api_voice_session() -> JSONResponse:
-        """Return the Voice Live session descriptor for the browser client."""
+        """Return the Foundry voice-agent session descriptor for the browser."""
         from ..voice_live import session_descriptor
 
         return JSONResponse(session_descriptor())
 
     @app.websocket("/ws/voice")
     async def ws_voice(websocket: WebSocket) -> None:
-        """Bridge the browser to the upstream Azure Voice Live realtime WS."""
+        """Bridge the browser to the Foundry voice-agent realtime endpoint."""
         from ..voice_live import proxy_session
 
         await websocket.accept()
