@@ -107,7 +107,9 @@ sees everything live in the NOC Console ②.
   protocol; `python -m fibreops.demo deploy-hosted` registers it. See
   [Deploy the containerised hosted agent](#deploy-the-containerised-hosted-agent).
 
-![Architecture](./docs/images/architecture.png)  
+![High-level Foundry voice-agent scenario](./docs/images/architecture.png)
+
+> Regenerate with `python scripts/gen_scenario_architecture.py`.
 
 ## NOC console preview
 
