@@ -20,9 +20,11 @@
                                               Optimiser (rubric → suggestions)
 ```
 
-Agents are **hosted Prompt Agents** in Microsoft Foundry Agent Service
-(`agent_framework_foundry.FoundryAgent`). Tools are typed Python functions
-the runtime supplies to the hosted definition.
+In the deployed configuration, the three roles use **hosted Prompt Agents** in
+Microsoft Foundry Agent Service (`agent_framework_foundry.FoundryAgent`).
+The `foundry` and `local` backends are available for development. Typed Python
+tools execute in the application; the hosted agent can also use a Foundry IQ
+MCP connection when configured.
 
 ### Architecture diagram
 
@@ -106,6 +108,11 @@ sees everything live in the NOC Console ②.
   `src/fibreops/agents/Dockerfile.hosted` declare the image, sandbox size, and
   protocol; `python -m fibreops.demo deploy-hosted` registers it. See
   [Deploy the containerised hosted agent](#deploy-the-containerised-hosted-agent).
+
+The following is the original conceptual BRK241 scenario, with the voice
+interaction labelled for Foundry Voice Agents Preview. Some illustrated
+services and channels represent the wider scenario rather than integrations
+implemented by this demo (notably Work IQ and Microsoft 365 channels).
 
 ![High-level Foundry voice-agent scenario](./docs/images/architecture.png)
 
@@ -208,8 +215,8 @@ Layout:
 | **`[03·TOPO]`**     | Node grid coloured by severity, dispatched outline, click-to-jump-to-detail, severity legend |
 | **`[04·OPTIMISER]`** | Average rubric score, per-criterion bars, top suggestions   |
 | **`[05·TEAMS]`**    | Flattened Adaptive Card preview (polled every 5 s)          |
-| **`[06·VOICE]`**    | Voice Live outbox (utterance, voice, severity)              |
-| **`[07·IQ]`**       | Foundry IQ + Web IQ + Work IQ grounding lookups (real Bing/Fabric calls in `foundry`/`hosted` mode, fixtures in `local` mode) |
+| **`[06·VOICE]`**    | Voice-agent announcement outbox (utterance, voice, severity) |
+| **`[07·IQ]`**       | Foundry IQ knowledge-base lookups when configured, otherwise deterministic Web/Work IQ fixtures; optional legacy HTTP connectors can provide additional context |
 
 Action buttons:
 
@@ -227,7 +234,7 @@ and a `/healthz` endpoint for liveness probes.
 > into `src/fibreops/ui/static/` and update `templates/index.html` to point at
 > the local copies.
 
-## Voice Live integration (BRK241 slide 8)
+## Foundry Voice Agents Preview (BRK241 slide 8)
 
 The system can speak status updates through a **separate Microsoft Foundry
 Voice Agent Preview**. The existing `gpt-5.4-mini` text agents are unchanged.
@@ -298,9 +305,10 @@ gives the same observable behaviour and the same trace shape.
 
 ## Foundry IQ — Web IQ + Work IQ (BRK241 slide 9)
 
-The Incident Analysis agent grounds its reasoning with **Microsoft Foundry
-IQ** — the "Web IQ" and "Work IQ" tiles on slide 9. Two new tools sit in front
-of those endpoints:
+The Incident Analysis agent can ground its reasoning in a **Foundry IQ**
+knowledge base. The "Web IQ" and "Work IQ" tiles on slide 9 are represented
+by two optional HTTP connectors with deterministic fixtures when unset;
+they do not automatically connect to Microsoft's Web IQ or Work IQ services:
 
 - `tools/knowledge.web_iq_search(query, *, limit)` — public-web context
   (roadworks, weather, power, splice guidance).
@@ -319,9 +327,9 @@ disabled).
 | `FOUNDRY_IQ_SEARCH_ENDPOINT`     | Azure AI Search endpoint of the real Foundry IQ knowledge base |
 | `FOUNDRY_IQ_KNOWLEDGE_BASE`      | Knowledge base name (default `fibreops-knowledge-base`)        |
 | `FOUNDRY_IQ_SEARCH_API_KEY`      | Local-dev search key (runtime uses managed identity)           |
-| `FOUNDRY_WEB_IQ_ENDPOINT`        | Legacy HTTPS endpoint accepting `{query, top}` returning `{results: [...]}` |
+| `FOUNDRY_WEB_IQ_ENDPOINT`        | Optional HTTPS endpoint accepting `{query, limit}` returning `{results: [...]}` |
 | `FOUNDRY_WEB_IQ_API_KEY`         | Optional `Ocp-Apim-Subscription-Key` header                    |
-| `FOUNDRY_WORK_IQ_ENDPOINT`       | Legacy HTTPS endpoint for enterprise IQ (same shape as Web IQ) |
+| `FOUNDRY_WORK_IQ_ENDPOINT`       | Optional enterprise HTTP connector (same shape as Web IQ) |
 | `FOUNDRY_WORK_IQ_API_KEY`        | Optional API key for Work IQ                                   |
 | `FIBREOPS_FOUNDRY_IQ`            | `0`/`false` disables IQ grounding entirely (default: `1`)      |
 
@@ -333,10 +341,10 @@ disabled).
 
 ## GitHub Copilot SDK adapter (BRK241 slide 4)
 
-The **GitHub Copilot SDK** in the deck is mirrored locally by
-`fibreops.sdk.FibreOpsCopilotClient` — same `create_session()` /
-`send_and_wait()` shape as `@github/copilot-sdk`, so the same calling code
-works against either implementation.
+`fibreops.sdk.FibreOpsCopilotClient` is an **in-process demo adapter** inspired
+by the `create_session()` / `send_and_wait()` flow of `@github/copilot-sdk`.
+It does not install or invoke the GitHub Copilot SDK, and its API is not a
+drop-in replacement for that SDK.
 
 ```python
 from fibreops.sdk import FibreOpsCopilotClient
@@ -414,9 +422,9 @@ deployed FastAPI app.
 | Microsoft Teams          | Incoming Webhook (Adaptive Card)                           | Append to `state/teams_outbox.jsonl`       |
 | Foundry Voice Agent Preview | Published `AZURE_VOICE_AGENT_NAME` (managed realtime model) | Outbox + browser speech |
 | D365 Field Service       | Set `D365_MOCK_BASE_URL` to a real Dataverse v9.2 endpoint | FastAPI service (`fibreops.mocks.d365_service`) |
-| Knowledge (SOPs, topology) | Foundry Work IQ / Web IQ / Fabric IQ connections          | Local JSON + markdown                       |
-| Foundry IQ grounding     | `FOUNDRY_WEB_IQ_ENDPOINT` + `FOUNDRY_WORK_IQ_ENDPOINT`     | Deterministic fixtures in `tools/knowledge.py` |
-| GitHub Copilot SDK       | `@github/copilot-sdk` against a hosted endpoint            | `fibreops.sdk.FibreOpsCopilotClient` (in-process) |
+| Knowledge (SOPs, topology) | Azure AI Search knowledge base and optional custom HTTP connectors | Local JSON + markdown |
+| Foundry IQ grounding     | `FOUNDRY_IQ_SEARCH_ENDPOINT` + `FOUNDRY_IQ_KNOWLEDGE_BASE` | Deterministic fixtures in `tools/knowledge.py` |
+| GitHub Copilot SDK       | Not integrated into this application                       | `fibreops.sdk.FibreOpsCopilotClient` (in-process demo adapter) |
 | Microsoft 365 Copilot publishing | Sideloaded `fibreops-copilot.zip` (Teams / Microsoft 365 admin) | `python -m fibreops.demo publish-m365` produces a placeholder package |
 | Memory                   | Foundry Agent Memory store                                 | SQLite `state/memory.db`                    |
 | Optimiser                | `FoundryEvals` + `evaluate_traces`                         | Local rubric (`fibreops.optimiser`)         |
@@ -466,12 +474,13 @@ docs/
 
 The repository ships a complete `azd` (Azure Developer CLI) template. A single
 `azd up` provisions all infrastructure and deploys the whole solution:
-**Azure App Service for Linux Containers** (NOC console), a private **Azure
+**Azure App Service for Linux Containers** (NOC console), **Azure
 Container Registry**, **Event Hub**, **Key Vault**, **Log Analytics**,
 **Application Insights**, a new **Foundry account/project and model deployment**,
-the **Azure AI Services (Voice Live)** account, the
+an optional legacy **Azure AI Services (Voice Live)** account, the
 three role **Prompt Agents**, and (optionally) the containerised **hosted
-agent**.
+agent**. The separate Foundry Voice Agent Preview uses the Foundry project,
+not the legacy Speech account or its API key.
 
 | Component | How it's deployed |
 |-----------|-------------------|
@@ -602,9 +611,9 @@ The script grants the App Service's system-assigned managed identity:
 | Role                          | Scope                | Why                                          |
 |-------------------------------|----------------------|----------------------------------------------|
 | `Azure Event Hubs Data Owner` | Event Hubs namespace | Publish + consume `fibre-signals`            |
-| `Key Vault Secrets User`      | Key Vault            | Read the Voice Live key + optional secrets   |
+| `Key Vault Secrets User`      | Key Vault            | Read the optional legacy Voice Live key and other secrets |
 | `AcrPull`                     | Container Registry   | Pull image with MI instead of admin creds    |
-| `Cognitive Services User`     | Voice Live account   | Use the Voice Live realtime endpoint         |
+| `Cognitive Services User`     | Optional legacy Voice Live account | Legacy integration role; the preview voice agent instead uses the Foundry project |
 | `Search Index Data Reader`    | Azure AI Search      | Retrieve from the Foundry IQ knowledge base  |
 | `Azure AI Developer`          | Foundry account      | Invoke hosted Prompt Agents + manage threads |
 | `Cognitive Services OpenAI User` | Foundry account   | Call the chat-completions deployment from the agent runtime |
@@ -625,13 +634,14 @@ Wait **2–5 minutes** for role assignments to propagate, then restart and test:
 ```powershell
 az webapp restart -g <resource-group> -n <webapp-name>
 
-# Health + an end-to-end agent run (expect 200 for both):
-curl "https://<webapp>/healthz"
-curl -Method POST "https://<webapp>/actions/inject?count=1&critical=true"
+# The health probe is anonymous; the action requires a signed-in operator:
+curl.exe "https://<webapp>/healthz"
 ```
 
-Open the NOC console URL and click **Simulate** to stream live runs through the
-analyse → coordinate → dispatch pipeline.
+Open the NOC console URL, sign in with the allowed Microsoft Entra account,
+and click **Inject signal**. Confirm an incident appears before using
+**Start simulation** to stream further runs through the pipeline. An
+unauthenticated POST to `/actions/inject` returns 401.
 
 ### Step 8 (optional) — Harden registry access
 
@@ -672,9 +682,9 @@ identity** roles are granted by `scripts/grant-mi-roles.ps1` and used at runtime
 | Role | Scope | Why |
 |------|-------|-----|
 | `Azure Event Hubs Data Owner` | Event Hubs namespace | Publish + consume `fibre-signals` |
-| `Key Vault Secrets User` | Key Vault | Read the Voice Live key + optional secrets |
+| `Key Vault Secrets User` | Key Vault | Read the optional legacy Voice Live key and other secrets |
 | `AcrPull` | Container Registry | Pull the NOC image via MI (after hardening) |
-| `Cognitive Services User` | Voice Live (AI Services) account | Use the Voice Live realtime endpoint |
+| `Cognitive Services User` | Optional legacy Voice Live (AI Services) account | Legacy integration role; not needed to invoke the Foundry voice agent |
 | `Search Index Data Reader` | Azure AI Search | Retrieve from the Foundry IQ knowledge base |
 | `Azure AI Developer` | Foundry account | Invoke hosted Prompt Agents + manage threads |
 | `Cognitive Services OpenAI User` | Foundry account | Call the chat-completions model deployment |
@@ -819,10 +829,10 @@ Real-world snags hit during an end-to-end `azd up` + hosted-agent deploy, and
 how to get past them. Work through them in order.
 
 **1. Local env — `requirements.txt` OpenTelemetry conflict.**
-`azure-monitor-opentelemetry` pins `opentelemetry-sdk==1.40`, so the
-`opentelemetry-*` lines are pinned to `==1.40`/`==0.61b0` (not `>=1.42`). If you bump them,
-keep them compatible with whatever `azure-monitor-opentelemetry` resolves or
-`pip install -r requirements.txt` fails with `ResolutionImpossible`.
+The current requirements pin `opentelemetry-api` and `opentelemetry-sdk` to
+`1.44.0` and `opentelemetry-instrumentation-httpx` to `0.65b0`. If you
+upgrade them, resolve the full set with `azure-monitor-opentelemetry` before
+deploying; mismatched pins cause `ResolutionImpossible`.
 
 **2. Local env — tests can't import `fibreops`.**
 The package lives under `src/`. After creating a venv, install it editable so
@@ -932,23 +942,23 @@ container warmup, then check `https://<webapp>/healthz` returns `200`.
 The default agent backend is `hosted` (`FIBREOPS_AGENT_BACKEND=hosted`), which
 binds to three per-role **Prompt Agents** in your Foundry project
 (`fibreops-incident-analysis`, `fibreops-netops-coordinator`,
-`fibreops-field-dispatch`). These are **not** created by `azd up` — publish them
-once against the target project, then restart the web app:
+`fibreops-field-dispatch`). The `postdeploy` hook publishes them during a
+normal `azd up` and writes their versions to `FIBREOPS_PUBLISHED_AGENTS` in
+App Service configuration. If the hook was skipped or failed, rerun `azd
+deploy` and inspect its error; manually publishing agents alone does not set
+the App Service registry. For a local CLI run, you can publish them with:
 
 ```powershell
 $env:AZURE_AI_PROJECT_ENDPOINT = "https://<account>.services.ai.azure.com/api/projects/<project>"
 $env:AZURE_AI_MODEL_DEPLOYMENT = "gpt-5.4-mini"
 .\.venv\Scripts\python.exe -m fibreops.demo publish     # creates the 3 Prompt Agents (version 1)
-az webapp restart -g <resource-group> -n <webapp-name>
 ```
 
 The App Service managed identity also needs **Azure AI Developer** +
 **Cognitive Services OpenAI User** on the Foundry account
-(`scripts/grant-mi-roles.ps1` grants these). Verify end-to-end with:
-
-```powershell
-curl -Method POST "https://<webapp>/actions/inject?count=1&critical=true"   # expect 200
-```
+(`scripts/grant-mi-roles.ps1` grants these). Verify end-to-end by signing in
+to the NOC console and clicking **Inject signal**; an anonymous request to
+the action returns 401.
 
 Note this is distinct from the **containerised hosted agent**
 (`fibreops.demo deploy-hosted`) — that is the single `/responses` agent, while

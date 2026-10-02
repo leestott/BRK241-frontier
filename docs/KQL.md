@@ -1,10 +1,12 @@
 # Application Insights / Log Analytics KQL Pack — FibreOps
 
-Paste-ready queries for the BRK241 demo. Every query targets the standard
-OpenTelemetry-on-Azure-Monitor tables (`dependencies`, `traces`) that the
-`azure-monitor-opentelemetry` distro populates automatically — set
-`APPLICATIONINSIGHTS_CONNECTION_STRING` in `.env` and every span the agents
-emit lands in your workspace within ~60 seconds.
+Queries for the BRK241 demo's Application Insights **Logs** view (classic
+table names). Set `APPLICATIONINSIGHTS_CONNECTION_STRING` in your private
+environment to enable Azure Monitor export. The application also writes
+spans to `state/traces.jsonl`; verify telemetry ingestion in Application
+Insights before relying on these cloud queries. In a Log Analytics workspace
+using workspace table names, use `AppDependencies` instead of `dependencies`
+and the corresponding PascalCase field names.
 
 > **Telemetry shape** (see `src/fibreops/observability.py`):
 >
@@ -13,11 +15,15 @@ emit lands in your workspace within ~60 seconds.
 > | `orchestrator.handle_signal`        | `dependencies`     | `orchestrator.handle_signal`    |
 > | `agent_span(...)`                   | `dependencies`     | `agent.IncidentAnalysisAgent` … |
 > | `tool_span(...)`                    | `dependencies`     | `tool.create_ticket` …          |
-> | `record_event("fibreops.optimiser.score", ...)` | `traces` | `fibreops.optimiser.score`    |
+> | `optimiser.run`                   | `dependencies`     | `optimiser.run` (average score as a span attribute) |
 >
-> **Common dimensions** (set on the orchestrator wrap span and every child):
-> `signal_id`, `incident_id`, `node_id`, `severity`, `region`,
-> `customers_served`, `decision`, `dispatched`, `dispatched_at_ms`.
+> `record_event(...)` adds **OpenTelemetry span events**, not independently
+> queryable `traces` rows. Individual criterion scores are in
+> `state/optimiser_suggestions.jsonl` or `/api/optimiser`, not the
+> `traces` table. The orchestrator/agent spans carry `signal_id`,
+> `incident_id`, `node_id`, `severity`, `region`, and `customers_served`;
+> `decision`, `dispatched`, and `dispatched_at_ms` are on the orchestrator
+> span (and `decision` is also on the coordinator span).
 
 ---
 
@@ -90,40 +96,39 @@ dependencies
 | order by calls desc
 ```
 
-## 5. Optimiser score trend over time
+## 5. Optimiser average score trend over time
 
-Span events the optimiser emits — the slope tells you whether prompt
-iterations are paying off.
+Each optimiser run stores its average score on the `optimiser.run` span.
+This is an average per run, not a separate score for every incident.
 
 ```kusto
-traces
+dependencies
 | where timestamp > ago(7d)
-| where message == "fibreops.optimiser.score"
-| extend score    = todouble(customDimensions.score),
-         run_id   = tostring(customDimensions.run_id),
-         incident = tostring(customDimensions.incident_id)
-| summarize avg_score = avg(score), runs = count() by bin(timestamp, 1h)
+| where name == "optimiser.run"
+| extend score = todouble(customDimensions.avg_score)
+| where isnotnull(score)
+| summarize avg_score = avg(score), evaluations = count() by bin(timestamp, 1h)
 | render timechart
 ```
 
-## 6. Which rubric criterion fails most often?
+## 6. Which rubric criterion fails most often? (local state)
 
-Drives the next prompt edit.
+The per-criterion scores are saved in the optimiser summary, not as
+Application Insights `traces`. Run the optimiser first, then inspect its
+summary in PowerShell (or request `/api/optimiser` while signed in):
 
-```kusto
-traces
-| where timestamp > ago(7d)
-| where message == "fibreops.optimiser.criterion"
-| extend criterion = tostring(customDimensions.criterion),
-         passed    = tobool(customDimensions.passed)
-| summarize evaluations = count(),
-            failures    = countif(passed == false),
-            fail_pct    = round(100.0 * countif(passed == false) / count(), 2)
-            by criterion
-| order by fail_pct desc
+```powershell
+$summary = Get-Content state\optimiser_suggestions.jsonl -Raw | ConvertFrom-Json
+$summary.scores | ForEach-Object {
+    $_.criteria.PSObject.Properties | Where-Object Value -lt 1 |
+        Select-Object Name, Value
+}
 ```
 
-## 7. Dispatch SLA — were criticals dispatched within 5 minutes?
+## 7. Dispatch latency — did criticals enter dispatch within 5 minutes?
+
+`dispatched_at_ms` is recorded when the dispatch step finishes; this
+attribute does **not** confirm that an engineer was successfully booked.
 
 ```kusto
 dependencies
@@ -132,7 +137,7 @@ dependencies
 | extend severity         = tostring(customDimensions.severity),
          dispatched       = tobool(customDimensions.dispatched),
          dispatched_at_ms = todouble(customDimensions.dispatched_at_ms)
-| where severity in ("critical", "high") and dispatched == true
+| where severity in ("critical", "high") and isnotnull(dispatched_at_ms)
 | summarize within_5min = countif(dispatched_at_ms <= 5 * 60 * 1000),
             total       = count(),
             sla_pct     = round(100.0 * countif(dispatched_at_ms <= 5 * 60 * 1000) / count(), 2),
@@ -156,9 +161,10 @@ dependencies
 | take 10
 ```
 
-## 9. Teams card delivery success
+## 9. Teams tool-call success
 
-Distinguish "we did the work" from "the notification actually landed".
+Counts tool calls, not confirmed delivery to Teams. With no webhook
+configured, the tool writes to the local outbox instead.
 
 ```kusto
 dependencies
@@ -170,17 +176,18 @@ dependencies
             by tool = name
 ```
 
-## 10. Full trace replay for one incident
+## 10. Span replay for one incident
 
 Tie everything together — paste an incident ID into the parameter line and
-get every span + event that touched it.
+get every exported span carrying that ID. This does not reconstruct
+individual OpenTelemetry span events.
 
 ```kusto
 let target_incident = "INC-XXXXXXXX";   // <-- paste here
-union dependencies, traces
+dependencies
 | where timestamp > ago(7d)
 | where tostring(customDimensions.incident_id) == target_incident
-| project timestamp, itemType, span_or_event = coalesce(name, message),
+| project timestamp, span = name,
           duration, success, operation_Id, customDimensions
 | order by timestamp asc
 ```
@@ -190,7 +197,8 @@ union dependencies, traces
 ## Workbook ideas (optional, for the talk slide-deck)
 
 * **Operations dashboard**: queries 1, 2, 3, 7 on a single grid.
-* **Agent quality dashboard**: queries 5, 6, 4 — feeds product decisions.
+* **Agent quality dashboard**: queries 5 and 4, plus the local summary in 6.
 * **Network health dashboard**: query 8 + an Azure Maps layer of nodes.
 
-All three reuse the same telemetry schema — no extra emit code, no extra cost.
+The local optimiser summary is separate from the exported span schema;
+Azure Monitor ingestion may incur charges.
