@@ -118,20 +118,20 @@ implemented by this demo (notably Work IQ and Microsoft 365 channels).
 
 ## NOC console preview
 
-The deployed application is a tactical Network Operations Center wallboard
+The application is a tactical Network Operations Center wallboard
 with a live KPI strip, node topology grid, severity LEDs, alarm pulses,
 panel codes (`[01·RUNS]`, `[02·DETAIL]`, …), live UTC clock, and a
-light/dark theme toggle. All numbers are aggregated from real run state —
-nothing is fabricated.
+light/dark theme toggle. The full-page screenshots below use an isolated
+local demo with sample incidents; live dashboard figures reflect its own
+run state and may differ.
 
 | Dark mode (default NOC look)                              | Light mode                                                   |
 | --------------------------------------------------------- | ------------------------------------------------------------ |
-| ![NOC dark](./docs/screenshots/noc-dark-prod.png)         | ![NOC light](./docs/screenshots/noc-light-prod.png)          |
+| ![NOC dark](./docs/screenshots/noc-dark-demo.png)         | ![NOC light](./docs/screenshots/noc-light-demo.png)          |
 
-Run detail with a real Foundry agent decision (Incident Analysis →
-NetOps Coordinator handing off to dispatch):
+Demo run detail with an incident analysis decision and dispatch handoff:
 
-![NOC run detail](./docs/screenshots/noc-run-detail-prod.png)
+![NOC run detail](./docs/screenshots/noc-run-detail-demo.png)
 
 ## Quick start
 
