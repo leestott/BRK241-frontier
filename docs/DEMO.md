@@ -324,10 +324,8 @@ Suggested narration overlay:
   Web-app deployment does not promote a candidate or waive fluency/listening gates.
 - **Recorded evaluation demo (2026-10-07)** — production `fibreops-noc-voice`
   version **4** contains the unchanged definition from candidate version **7**,
-  using native `marin` speech. The temporary candidate agent was removed after
-  rollout; its v6 and v7 evaluation runs remain available for historical comparison.
-  The newer `fibreops-noc-voice-incident-candidate` is a separate retained test agent.
-  Both runs passed language selection, semantic accuracy, natural wording,
+  using native `marin` speech. In the historical v6 and v7 comparison,
+  both runs passed language selection, semantic accuracy, natural wording,
   transcription and coherence on all 32 replies. Fluency at 4/5 or above fell
   from **22/32 to 14/32** after the wording change: this is a measured regression,
   not an improvement. That historical run's fluency pass counts are English **11/22**,
