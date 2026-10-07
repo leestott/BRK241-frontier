@@ -1,12 +1,13 @@
-"""Tests for the Voice Live session/proxy plumbing.
+"""Tests for Foundry Voice Agents Preview session/proxy plumbing.
 
-The realtime upstream is not contacted in tests — we verify URL/headers
-construction, the public /api/voice/session descriptor, and that the
-WebSocket proxy refuses connections cleanly when nothing is configured.
+The realtime upstream is not contacted in tests.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,8 +15,8 @@ from fastapi.testclient import TestClient
 import fibreops.ui.app as ui_module
 from fibreops import config
 from fibreops.voice_live import (
-    build_upstream_headers,
     build_upstream_url,
+    proxy_session,
     session_descriptor,
 )
 
@@ -32,86 +33,140 @@ def _reload_settings(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
     config.get_settings.cache_clear()
 
 
+def test_voice_definition_matches_polish_input_language() -> None:
+    definition_path = (
+        Path(__file__).parents[1] / "src" / "fibreops" / "voice_live" / "definition.json"
+    )
+    definition = json.loads(definition_path.read_text(encoding="utf-8"))
+    instructions = definition["instructions"]
+
+    assert "Reply in Polish when the user speaks Polish" in instructions
+    assert "explicitly asks for a response in Polish" in instructions
+    assert "Otherwise, reply in natural British English" in instructions
+    assert "summarise the result in the selected response language" in instructions
+    assert "native Polish pronunciation and stress, not a British accent" in instructions
+    assert "Polish text with its correct diacritics" in instructions
+    assert "For English replies, use British English pronunciation (en-GB)" in instructions
+
+
+def test_voice_agent_defaults_to_multilingual_british_voice() -> None:
+    field = config.Settings.model_fields["azure_voice_agent_voice"]
+    assert field.default == "en-GB-OllieMultilingualNeural"
+
+
 def test_build_upstream_url_unconfigured() -> None:
     config.get_settings.cache_clear()
-    assert build_upstream_url() is None
+    assert build_upstream_url(config.Settings(AZURE_VOICE_AGENT_NAME="")) is None
 
 
-def test_build_upstream_url_appends_realtime_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Agent mode: the upstream URL embeds a bearer token, so stub the token.
-    monkeypatch.setattr("fibreops.voice_live._get_bearer_token", lambda: "tok")
+def test_build_upstream_url_uses_project_and_voice_protocol(monkeypatch: pytest.MonkeyPatch) -> None:
     _reload_settings(
         monkeypatch,
-        AZURE_VOICE_LIVE_ENDPOINT="https://eastus.api.cognitive.microsoft.com",
-        AZURE_VOICE_LIVE_AGENT_ID="agent-123",
-        AZURE_VOICE_LIVE_API_VERSION="2025-05-01-preview",
+        AZURE_AI_PROJECT_ENDPOINT="https://foundry.services.ai.azure.com/api/projects/project",
+        AZURE_VOICE_AGENT_NAME="noc voice",
+        AZURE_VOICE_AGENT_VERSION="2",
     )
     url = build_upstream_url()
-    assert url is not None
-    assert url.startswith("wss://eastus.api.cognitive.microsoft.com/voice-live/realtime?")
-    assert "api-version=2025-05-01-preview" in url
-    assert "agent-name=agent-123" in url
-    assert "authorization=Bearer+tok" in url
+    assert url == (
+        "wss://foundry.services.ai.azure.com/api/projects/project/agents/"
+        "noc%20voice/endpoint/protocols/voice?api-version=v1&x-agent-version-override=2"
+    )
+    assert "Bearer" not in url
 
 
-def test_build_upstream_url_normalises_to_host_and_realtime_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The proxy extracts the bare host and always targets /voice-live/realtime,
-    # in direct-model mode (no agent id) with the Voice Live managed model name.
+def test_build_upstream_url_rejects_non_project_url(monkeypatch: pytest.MonkeyPatch) -> None:
     _reload_settings(
         monkeypatch,
-        AZURE_VOICE_LIVE_ENDPOINT="wss://example.com/voicelive/realtime?foo=bar",
-        AZURE_VOICE_LIVE_MODEL="gpt-4o-mini",
+        AZURE_AI_PROJECT_ENDPOINT="https://example.com/voice-live/realtime",
+        AZURE_VOICE_AGENT_NAME="noc",
     )
-    url = build_upstream_url()
-    assert url is not None
-    assert url.startswith("wss://example.com/voice-live/realtime?")
-    assert "api-version=" in url
-    assert "model=gpt-4o-mini" in url
+    with pytest.raises(ValueError, match="Foundry HTTPS project endpoint"):
+        build_upstream_url()
 
 
-def test_build_upstream_headers_includes_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Runtime prefers the managed-identity bearer token; the api-key header is a
-    # local-dev fallback only used when no token is available.
-    monkeypatch.setattr("fibreops.voice_live._get_bearer_token", lambda: None)
+def test_proxy_uses_preview_header_and_rejects_session_override(monkeypatch: pytest.MonkeyPatch) -> None:
     _reload_settings(
         monkeypatch,
-        AZURE_VOICE_LIVE_ENDPOINT="https://example.com",
-        AZURE_VOICE_LIVE_API_KEY="sekret",
+        AZURE_AI_PROJECT_ENDPOINT="https://foundry.services.ai.azure.com/api/projects/project",
+        AZURE_VOICE_AGENT_NAME="fibreops-noc-voice",
     )
-    assert build_upstream_headers() == {"api-key": "sekret"}
+    captured: dict[str, object] = {}
+
+    class Credential:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def get_token(self, scope):
+            assert scope == "https://ai.azure.com/.default"
+            return SimpleNamespace(token="test-token")
+
+    class Upstream:
+        sent: list[str] = []
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await asyncio.sleep(60)
+            raise StopAsyncIteration
+
+        async def send(self, text):
+            self.sent.append(text)
+
+        async def close(self):
+            return None
+
+    class Client:
+        closed: list[int] = []
+
+        async def receive(self):
+            return {"type": "websocket.receive", "text": json.dumps({
+                "type": "session.update", "session": {"instructions": "override"}
+            })}
+
+        async def close(self, code=1000, reason=""):
+            self.closed.append(code)
+
+    async def connect(url, **kwargs):
+        captured["url"] = url
+        captured["headers"] = kwargs["additional_headers"]
+        return Upstream()
+
+    monkeypatch.setattr("fibreops.voice_live.DefaultAzureCredential", Credential)
+    monkeypatch.setattr("websockets.connect", connect)
+    client_ws = Client()
+    asyncio.run(proxy_session(client_ws))
+
+    assert "test-token" not in captured["url"]
+    assert captured["headers"] == {
+        "Authorization": "Bearer test-token",
+        "Foundry-Features": "VoiceAgents=V1Preview",
+    }
+    assert 1008 in client_ws.closed
 
 
 def test_session_descriptor_disabled_by_default() -> None:
-    config.get_settings.cache_clear()
-    desc = session_descriptor()
+    desc = session_descriptor(config.Settings(AZURE_VOICE_AGENT_NAME=""))
     assert desc["enabled"] is False
     assert desc["ws_path"] is None
     assert desc["duplex_enabled"] is False
 
 
-def test_session_descriptor_enabled_one_shot(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_session_descriptor_enabled_for_published_agent(monkeypatch: pytest.MonkeyPatch) -> None:
     _reload_settings(
         monkeypatch,
-        AZURE_VOICE_LIVE_ENDPOINT="https://example.com",
-        AZURE_VOICE_LIVE_VOICE="en-GB-RyanNeural",
+        AZURE_AI_PROJECT_ENDPOINT="https://foundry.services.ai.azure.com/api/projects/project",
+        AZURE_VOICE_AGENT_NAME="fibreops-noc-voice",
     )
     desc = session_descriptor()
     assert desc["enabled"] is True
     assert desc["ws_path"] == "/ws/voice"
-    assert desc["voice"] == "en-GB-RyanNeural"
-    # Duplex mic works in direct-model mode (no agent id required).
     assert desc["duplex_enabled"] is True
-
-
-def test_session_descriptor_duplex_when_agent_id_set(monkeypatch: pytest.MonkeyPatch) -> None:
-    _reload_settings(
-        monkeypatch,
-        AZURE_VOICE_LIVE_ENDPOINT="https://example.com",
-        AZURE_VOICE_LIVE_AGENT_ID="agent-XYZ",
-    )
-    desc = session_descriptor()
-    assert desc["duplex_enabled"] is True
-    assert desc["agent_id"] == "agent-XYZ"
+    assert desc["agent_name"] == "fibreops-noc-voice"
+    assert "api_key" not in desc
 
 
 def test_api_voice_session_endpoint(client: TestClient) -> None:
@@ -119,11 +174,16 @@ def test_api_voice_session_endpoint(client: TestClient) -> None:
     r = client.get("/api/voice/session")
     assert r.status_code == 200
     body = r.json()
-    assert set(body.keys()) >= {"enabled", "ws_path", "voice", "duplex_enabled"}
+    assert set(body.keys()) >= {"enabled", "ws_path", "agent_name", "duplex_enabled"}
 
 
 def test_ws_voice_closes_when_unconfigured(client: TestClient) -> None:
-    """Without AZURE_VOICE_LIVE_ENDPOINT the proxy must refuse cleanly."""
+    """Without a published voice agent the proxy must refuse cleanly."""
+    ui_module.get_settings.cache_clear()
+    from fibreops.voice_live import session_descriptor
+
+    if session_descriptor()["enabled"]:
+        pytest.skip("Locally configured voice agent")
     config.get_settings.cache_clear()
     from starlette.websockets import WebSocketDisconnect
 

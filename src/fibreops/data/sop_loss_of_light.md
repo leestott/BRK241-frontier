@@ -4,7 +4,7 @@
 
 ## Triage Steps
 1. Confirm alarm by polling the OLT/DWDM endpoint for the affected node.
-2. Cross-check upstream nodes; if upstream also dark, escalate to **SOP-FOC-002** (upstream cascade).
+2. Cross-check upstream nodes; if upstream also dark, escalate for an upstream cascade investigation.
 3. Pull OTDR baseline for the segment and compare to last good trace.
 4. Identify customers impacted via inventory; if customers_served > 5000, **auto-raise priority to High**.
 
