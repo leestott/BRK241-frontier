@@ -35,9 +35,9 @@ uvicorn[standard]>=0.54.0
 
 # --- OpenTelemetry ---
 # Azure Monitor OpenTelemetry 1.8.10 currently requires the 1.44/0.65 line.
-opentelemetry-api==1.44.0
-opentelemetry-sdk==1.44.0
-opentelemetry-instrumentation-httpx==0.65b0
+opentelemetry-api==1.45.0
+opentelemetry-sdk==1.45.0
+opentelemetry-instrumentation-httpx==0.66b0
 
 # --- Demo UX & utils ---
 rich>=15.0.0
