@@ -9,6 +9,9 @@ description = "Autonomous Fibre Outage Response System — Foundry Agent Service
 requires-python = ">=3.10"
 readme = "README.md"
 
+[project.optional-dependencies]
+diagrams = ["Pillow>=10,<13"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

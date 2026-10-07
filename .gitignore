@@ -22,3 +22,4 @@ state/*
 *.log
 azd-*.log
 .venv-voice/
+.venv-evaluation/

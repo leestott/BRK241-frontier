@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# FibreOps NOC console — Azure Container Apps image
+# FibreOps NOC console — Azure App Service container image
 FROM python:3.11-slim AS builder
 
 ENV PYTHONUNBUFFERED=1 \
@@ -9,7 +9,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /build
 
-COPY requirements.txt pyproject.toml ./
+COPY requirements.txt pyproject.toml README.md LICENSE ./
 COPY src ./src
 
 # Install runtime deps + the package itself (gives us the `fibreops` entry-point)
@@ -25,7 +25,7 @@ ENV PYTHONUNBUFFERED=1 \
     FIBREOPS_UI_HOST=0.0.0.0 \
     FIBREOPS_UI_PORT=8800
 
-# Non-root user so the container app honours the rootless ACA default
+# Run the application without root privileges.
 RUN groupadd --system fibreops \
  && useradd  --system --create-home --gid fibreops fibreops
 
@@ -34,7 +34,7 @@ WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# state/ is bind-mounted in dev; in the container it is ephemeral on /tmp
+# state/ is bind-mounted in dev; /app/state is ephemeral in this container.
 RUN mkdir -p /app/state \
  && chown -R fibreops:fibreops /app
 

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FibreOps services execution walkthrough</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; color: #1f2733; background: #eef5fc; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 1440px; margin: auto; padding: 24px; }
+    h1 { font-size: 1.75rem; margin: 0 0 12px; text-wrap: balance; }
+    p { line-height: 1.6; max-width: 75ch; }
+    a { color: #005a9e; }
+    .controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 24px 0 16px; }
+    button, select { font: inherit; padding: 10px 14px; background: #fff; color: #1f2733; border: 1px solid #657689; border-radius: 6px; }
+    button { cursor: pointer; }
+    button:hover { background: #dcecf9; }
+    button:disabled { cursor: not-allowed; color: #596471; background: #e1e6ec; }
+    :focus-visible { outline: 3px solid #0078d4; outline-offset: 3px; }
+    #play { background: #005a9e; color: white; }
+    #play:disabled { background: #657689; }
+    #narration { padding: 16px 0; min-height: 126px; }
+    #step-title { font-size: 1.15rem; margin: 0; }
+    #step-text { margin: 8px 0; }
+    figure { margin: 0; overflow-x: auto; background: white; border: 1px solid #cfe0f2; border-radius: 8px; }
+    svg { display: block; width: 100%; min-width: 840px; height: auto; }
+    .highlight { fill: #0078d4; fill-opacity: .12; stroke: #005a9e; stroke-width: 5; }
+    #trace { fill: none; stroke: #005a9e; stroke-width: 5; stroke-dasharray: 10 12; }
+    .playing #trace { animation: travel 900ms linear infinite; }
+    @keyframes travel { to { stroke-dashoffset: -44; } }
+    #progress { font-variant-numeric: tabular-nums; font-weight: 600; }
+    ol { padding-left: 24px; max-width: 90ch; }
+    li { line-height: 1.6; margin-bottom: 12px; }
+    footer { margin-top: 24px; font-size: .9rem; }
+    @media (max-width: 600px) { main { padding: 16px; } h1 { font-size: 1.4rem; } #narration { min-height: 180px; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>How FibreOps executes a response</h1>
+  <p>Follow the service boundaries, not just the boxes. This is an illustrative
+    walkthrough, not live telemetry. It makes no service calls and does not
+    create incidents, dispatch engineers or send notifications.</p>
+  <div class="controls">
+    <label for="scenario">Workflow</label>
+    <select id="scenario"><option value="incident">Incident response</option><option value="voice">Voice and acceptance</option></select>
+    <button id="play" type="button">Play</button>
+    <button id="next" type="button">Step</button>
+    <button id="restart" type="button">Restart</button>
+    <span id="progress"></span>
+  </div>
+  <p id="motion-note" hidden>Reduced motion is enabled. Use Step to move through the workflow without animation.</p>
+  <section id="narration" role="status" aria-live="polite" aria-atomic="true">
+    <h2 id="step-title">Incident response</h2>
+    <p id="step-text">The static architecture and written workflow remain available without JavaScript.</p>
+  </section>
+  <figure aria-label="Services architecture. On small screens scroll horizontally; each step is described above.">
+    <svg viewBox="0 0 1680 1060" role="img" aria-labelledby="diagram-title diagram-description">
+      <title id="diagram-title">FibreOps services architecture</title>
+      <desc id="diagram-description">Client, application, Agent Framework orchestration and external services. Dispatch is conditional. Voice uses the console proxy. Evaluation is separate.</desc>
+      <image href="images/services-architecture.png" width="1680" height="1060"/>
+      <path id="trace" aria-hidden="true"/>
+      <g id="highlights" aria-hidden="true"></g>
+    </svg>
+  </figure>
+  <details open>
+    <summary>Read the workflow without animation</summary>
+    <ol>
+      <li>Telemetry enters from the synthetic generator or a configured Event Hubs consumer. The orchestrator processes a signal.</li>
+      <li>IncidentAnalysisAgent produces structured severity, probable cause and SOP references. Local knowledge and optional Foundry IQ provide grounding.</li>
+      <li>NetOpsCoordinatorAgent coordinates ticket and notification tools. D365 is mocked; Teams delivers only when a webhook is configured, otherwise an outbox records the message.</li>
+      <li>FieldDispatchAgent runs only when the handoff or configured severity policy warrants it. Tool results determine whether an engineer was actually assigned.</li>
+      <li>Run records and traces are persisted; the console reads the results. Application Insights export is optional. A local rubric optimiser is separate from voice acceptance.</li>
+      <li>On-demand voice uses browser audio, the authenticated console WebSocket proxy, and the pinned Foundry Voice Agents Preview version. Tools run on the server; credentials do not go to the browser.</li>
+      <li>Stop response stops generation and queued playback, retaining the microphone. It cannot undo an external action already performed.</li>
+      <li>Candidate voice acceptance collects synthetic spoken turns, scores them with the Evaluation SDK, and publishes gates to the latest Foundry portal. Passing text checks does not certify a native accent or activate a production version.</li>
+    </ol>
+  </details>
+  <footer><a href="images/services-architecture.png">Static diagram</a> ·
+    <a href="https://github.com/leestott/BRK241-frontier#readme">Repository documentation</a>.
+    Native multilingual candidate policy: English default; Polish or Arabic only on an explicit current-turn request.
+    Existing deployments may remain pinned to an older policy; inspect the effective voice session.</footer>
+</main>
+<script>
+  "use strict";
+  const nodes = {"1": [92.0, 360, 188.0, 436], "2": [367.0, 280, 463.0, 356], "3": [367.0, 470, 463.0, 546], "4": [642.0, 250, 738.0, 326], "5": [807.0, 250, 903.0, 326], "6": [972.0, 250, 1068.0, 326], "7": [1102.0, 250, 1198.0, 326], "8": [672.0, 560, 768.0, 636], "9": [872.0, 560, 968.0, 636], "10": [1402.0, 210, 1498.0, 286], "11": [1402.0, 370, 1498.0, 446], "12": [1402.0, 530, 1498.0, 606], "13": [1402.0, 680, 1498.0, 756], "14": [30, 1016, 1650, 1053]};
+  const workflows = {
+    incident: [
+      {title: "1. Receive a signal", text: "A configured Event Hubs consumer or the deterministic generator supplies telemetry to handle_signal. The animation does not run either.", nodes: [3, 4]},
+      {title: "2. Analyse and ground", text: "IncidentAnalysisAgent returns structured analysis. Typed tools retrieve SOPs and topology; Foundry IQ is optional. Hosted, foundry and local backends are alternatives.", nodes: [4, 8, 9, 13]},
+      {title: "3. Coordinate the response", text: "NetOpsCoordinatorAgent uses server-side tools to create the mock D365 ticket and issue a Teams notice. An unset webhook uses the local outbox, not live Teams delivery.", nodes: [5, 7, 11, 10]},
+      {title: "4. Dispatch only when warranted", text: "A coordinator handoff, or the configured high/critical-severity auto-dispatch policy, permits FieldDispatchAgent to find an engineer and book the mock resource. Otherwise this branch is skipped.", nodes: [6, 7, 11, 10]},
+      {title: "5. Persist and observe", text: "The application saves run records and traces. The NOC console reads those records; configured OpenTelemetry export sends spans to Application Insights. A failed external action must not be narrated as success.", nodes: [2]},
+      {title: "6. Review the evidence", text: "The operator inspects decisions, integration results and the local optimiser rubric. Voice is a separate, on-demand interaction. Use the other workflow to follow that path.", nodes: [2, 1]}
+    ],
+    voice: [
+      {title: "1. Open the pinned preview agent", text: "The operator starts Talk to agent. Browser PCM16 audio reaches /ws/voice; the server authenticates to the Foundry project using Entra credentials. Check session.updated for the actual deployed model and policy.", nodes: [1, 2, 12]},
+      {title: "2. Answer with grounded tools", text: "The preview agent streams audio back through the proxy. Incident, node and SOP tools execute in the application, not in the browser. An announcement starts from stored status text. Production speech is not generated by a separate Speech TTS service.", nodes: [12, 7, 2, 1]},
+      {title: "3. Stop without disconnecting", text: "Stop response cancels the active generation, silences queued playback and prevents tool completion from restarting a cancelled reply. The microphone remains available. Already-executed actions cannot be undone.", nodes: [2, 12]},
+      {title: "4. Evaluate a candidate separately", text: "A test-only Speech service creates English, Polish and Arabic inputs. The harness streams real PCM to an immutable candidate version and saves transcripts and WAVs. The Evaluation SDK scores complete datasets; this is not part of every operator interaction.", nodes: [12, 14]},
+      {title: "5. Publish gates, then review", text: "The latest Foundry portal shows deterministic acceptance gates over the original SDK scores. Verify all rows and the exact version. Failed gates block promotion; native-speaker listening approval remains a separate requirement.", nodes: [14]}
+    ]
+  };
+  const routes = {
+    incident: [[[3, 4]], [[4, 8], [4, 9], [4, 13]], [[5, 7], [7, 11], [7, 10]], [[6, 7], [7, 11], [7, 10]], [], [[2, 1]]],
+    voice: [[[1, 2], [2, 12]], [[12, 2], [2, 7], [2, 1]], [[2, 12]], [], []]
+  };
+  const scenario = document.getElementById("scenario");
+  const play = document.getElementById("play");
+  const next = document.getElementById("next");
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+  let index = 0;
+  let timer = null;
+  function pause() {
+    clearInterval(timer);
+    timer = null;
+    play.textContent = "Play";
+    document.body.classList.remove("playing");
+  }
+  function render() {
+    const steps = workflows[scenario.value], step = steps[index];
+    document.getElementById("step-title").textContent = step.title;
+    document.getElementById("step-text").textContent = step.text;
+    document.getElementById("progress").textContent = (index + 1) + " / " + steps.length;
+    const highlights = document.getElementById("highlights");
+    highlights.replaceChildren();
+    for (const id of step.nodes) {
+      const [x0, y0, x1, y1] = nodes[id];
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      for (const [key, value] of Object.entries({x: x0 - 5, y: y0 - 5, width: x1 - x0 + 10, height: y1 - y0 + 10, rx: 12, class: "highlight"})) rect.setAttribute(key, value);
+      highlights.append(rect);
+    }
+    const centre = id => {
+      const [x0, y0, x1, y1] = nodes[id];
+      return ((x0 + x1) / 2) + "," + ((y0 + y1) / 2);
+    };
+    document.getElementById("trace").setAttribute("d",
+      routes[scenario.value][index].map(([from, to]) => "M" + centre(from) + " L" + centre(to)).join(" "));
+    next.disabled = index === steps.length - 1;
+    play.disabled = reduced.matches || next.disabled;
+    if (next.disabled) pause();
+  }
+  function advance() { index = Math.min(index + 1, workflows[scenario.value].length - 1); render(); }
+  play.addEventListener("click", () => {
+    if (timer !== null) { pause(); return; }
+    if (reduced.matches || next.disabled) return;
+    play.textContent = "Pause";
+    document.body.classList.add("playing");
+    timer = setInterval(advance, 6000);
+  });
+  next.addEventListener("click", () => { pause(); advance(); });
+  document.getElementById("restart").addEventListener("click", () => { pause(); index = 0; render(); });
+  scenario.addEventListener("change", () => { pause(); index = 0; render(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) pause(); });
+  function applyMotionPreference() { pause(); document.getElementById("motion-note").hidden = !reduced.matches; render(); }
+  reduced.addEventListener("change", applyMotionPreference);
+  applyMotionPreference();
+</script>
+</body>
+</html>

@@ -80,6 +80,8 @@ async def proxy_session(client_ws: Any) -> None:
         await client_ws.close(code=1011, reason="Voice agent connection failed")
         return
 
+    cancelled_responses: set[str] = set()
+
     async def client_to_upstream() -> None:
         while True:
             message = await client_ws.receive()
@@ -102,6 +104,8 @@ async def proxy_session(client_ws: Any) -> None:
                 if not isinstance(item, dict) or item.get("role") != "user":
                     await client_ws.close(code=1008, reason="Only user messages are allowed")
                     return
+            if event["type"] == "response.cancel" and isinstance(event.get("response_id"), str):
+                cancelled_responses.add(event["response_id"])
             await upstream.send(text)
 
     async def upstream_to_client() -> None:
@@ -125,18 +129,24 @@ async def proxy_session(client_ws: Any) -> None:
                         logger.exception("Voice agent tool %s failed", name)
                         result = json.dumps({"error": "Tool failed; check server logs."})
                     ready_outputs.append((call_id, result))
-            elif event.get("type") == "response.done" and ready_outputs:
-                for call_id, output in ready_outputs:
-                    await upstream.send(json.dumps({
-                        "type": "conversation.item.create",
-                        "item": {
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": output,
-                        },
-                    }))
-                ready_outputs.clear()
-                await upstream.send(json.dumps({"type": "response.create"}))
+            elif event.get("type") == "response.done":
+                response = event.get("response", {})
+                response_id = response.get("id")
+                cancelled = response.get("status") == "cancelled" or response_id in cancelled_responses
+                cancelled_responses.discard(response_id)
+                if ready_outputs:
+                    for call_id, output in ready_outputs:
+                        await upstream.send(json.dumps({
+                            "type": "conversation.item.create",
+                            "item": {
+                                "type": "function_call_output",
+                                "call_id": call_id,
+                                "output": output,
+                            },
+                        }))
+                    ready_outputs.clear()
+                    if not cancelled:
+                        await upstream.send(json.dumps({"type": "response.create"}))
 
     tasks = [
         asyncio.create_task(client_to_upstream()),

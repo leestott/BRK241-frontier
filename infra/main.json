@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "12638373435182900067"
+      "templateHash": "7647962061153835293"
     }
   },
   "parameters": {
@@ -74,9 +74,9 @@
     },
     "azureVoiceAgentVoice": {
       "type": "string",
-      "defaultValue": "en-GB-OllieMultilingualNeural",
+      "defaultValue": "marin",
       "metadata": {
-        "description": "Azure standard voice for the separately published voice agent."
+        "description": "Native realtime voice for the separately published voice agent."
       }
     },
     "entraClientId": {

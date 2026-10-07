@@ -1,0 +1,6 @@
+# Optional offline/cloud acceptance tooling, not web-app runtime dependencies.
+azure-ai-evaluation>=1.16.9,<2
+azure-ai-projects>=2.6,<2.7
+azure-identity>=1.26.0
+httpx>=0.28.1
+websockets>=17.1

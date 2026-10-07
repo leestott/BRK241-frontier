@@ -11,31 +11,45 @@ from azure.ai.projects import models
     "Requires the isolated requirements-voice.txt preview publisher environment",
 )
 class VoiceAgentPublisherTests(unittest.TestCase):
-    def test_default_definition_serializes_language_specific_pronunciation(self) -> None:
+    def test_default_definition_uses_native_speech_and_unbiased_transcription(self) -> None:
         from scripts.publish_voice_agent import build_definition
 
         definition = build_definition().as_dict()
         output = definition["audio"]["output"]
 
         self.assertEqual(definition["kind"], "voice")
-        self.assertEqual(definition["model"], "gpt-realtime")
-        self.assertEqual(output["voice"], "en-GB-OllieMultilingualNeural")
-        self.assertEqual(output["voice_type"], "azure-standard")
-        self.assertEqual(output["prefer_locales"], ["pl-PL", "en-GB"])
+        self.assertEqual(definition["model"], "gpt-realtime-2.1")
+        self.assertEqual(output["voice"], "marin")
+        self.assertEqual(output["voice_type"], "openai")
+        self.assertIsNone(output.get("prefer_locales"))
         self.assertIsNone(output.get("voice_locale"))
-        self.assertIn("native Polish pronunciation", definition["instructions"])
-        self.assertIn("Otherwise, reply in natural British English", definition["instructions"])
+        transcription = definition["audio"]["input"]["transcription"]
+        self.assertEqual(transcription["model"], "whisper-1")
+        self.assertIn("unconfirmed cause", transcription["prompt"])
+        self.assertIsNone(transcription.get("language"))
+        self.assertIsNone(transcription.get("languages"))
+        self.assertTrue(definition["audio"]["input"]["turn_detection"]["create_response"])
+        self.assertIn("APPLY INDEPENDENTLY ON EVERY USER TURN", definition["instructions"])
+        self.assertIn("Answer directly without announcing the chosen language", definition["instructions"])
+        self.assertIn("without adding causal links or new facts", definition["instructions"])
+        self.assertIn("keep one-sentence requests to a single sentence", definition["instructions"])
         self.assertEqual(len(definition["tools"]), 5)
 
-    def test_explicit_model_and_voice_preserve_locale_preferences(self) -> None:
+    def test_explicit_native_voice_does_not_add_locale_bias(self) -> None:
         from scripts.publish_voice_agent import build_definition
 
         definition = build_definition(
-            model="test-model", voice="en-GB-AdaMultilingualNeural"
+            model="test-model", voice="cedar"
         ).as_dict()
         output = definition["audio"]["output"]
 
         self.assertEqual(definition["model"], "test-model")
-        self.assertEqual(output["voice"], "en-GB-AdaMultilingualNeural")
-        self.assertEqual(output["prefer_locales"], ["pl-PL", "en-GB"])
+        self.assertEqual(output["voice"], "cedar")
+        self.assertIsNone(output.get("prefer_locales"))
         self.assertIsNone(output.get("voice_locale"))
+
+    def test_legacy_tts_voice_is_rejected_before_publishing(self) -> None:
+        from scripts.publish_voice_agent import build_definition
+
+        with self.assertRaisesRegex(ValueError, "native realtime voice"):
+            build_definition(voice="en-GB-OllieMultilingualNeural")
