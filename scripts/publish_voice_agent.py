@@ -23,7 +23,10 @@ from azure.ai.projects.models import (
 from azure.identity import DefaultAzureCredential
 
 
-def build_definition(model: str = "gpt-realtime", voice: str = "en-GB-RyanNeural") -> VoiceAgentDefinition:
+def build_definition(
+    model: str = "gpt-realtime",
+    voice: str = "en-GB-OllieMultilingualNeural",
+) -> VoiceAgentDefinition:
     source = Path(__file__).resolve().parent.parent / "src/fibreops/voice_live/definition.json"
     spec = json.loads(source.read_text(encoding="utf-8"))
     return VoiceAgentDefinition(
@@ -34,6 +37,7 @@ def build_definition(model: str = "gpt-realtime", voice: str = "en-GB-RyanNeural
             output=VoiceAgentAudioOutputConfig(
                 voice=voice,
                 voice_type=VoiceType.AZURE_STANDARD,
+                prefer_locales=["pl-PL", "en-GB"],
             ),
         ),
         output_modalities=[VoiceOutputModality.AUDIO],
@@ -54,7 +58,7 @@ def main() -> None:
     agent_name = os.environ["AZURE_VOICE_AGENT_NAME"]
     definition = build_definition(
         model=os.environ.get("AZURE_VOICE_AGENT_MODEL", "gpt-realtime"),
-        voice=os.environ.get("AZURE_VOICE_AGENT_VOICE", "en-GB-RyanNeural"),
+        voice=os.environ.get("AZURE_VOICE_AGENT_VOICE", "en-GB-OllieMultilingualNeural"),
     )
     with (
         DefaultAzureCredential() as credential,

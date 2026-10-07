@@ -268,7 +268,7 @@ Behaviour:
 | `AZURE_AI_PROJECT_ENDPOINT`   | Foundry project endpoint for text and voice agents     |
 | `AZURE_VOICE_AGENT_NAME`      | Published `kind: voice` agent; empty = offline mode     |
 | `AZURE_VOICE_AGENT_VERSION`   | Optional tested version; empty uses latest              |
-| `AZURE_VOICE_AGENT_VOICE`     | Voice configured at publish time                        |
+| `AZURE_VOICE_AGENT_VOICE`     | Voice configured at publish time (default `en-GB-OllieMultilingualNeural`) |
 | `AZURE_VOICE_AGENT_MODEL`     | Managed voice model configured at publish time (`gpt-realtime`) |
 | `FIBREOPS_VOICE_UPDATES`      | `1` = agents speak automatically; default `0` (UI only)  |
 
@@ -282,6 +282,27 @@ requires `azure-ai-projects<2.7` while Voice Agents Preview requires
 `azure-ai-projects>=2.7`. Authentication uses the web app managed identity;
 no API keys or bearer tokens are placed in the browser or tracked YAML.
 The project must support Voice Agents Preview and managed `gpt-realtime`.
+The published definition replies in Polish when the operator speaks Polish or
+explicitly requests Polish; otherwise it replies in British English. The
+default multilingual British voice supports both response languages. The preview
+agent's audio output sets `prefer_locales=["pl-PL", "en-GB"]` to request Polish
+(Poland) pronunciation for Polish and British pronunciation for English. It does
+not force a single `voice_locale` across both languages or switch voice identities.
+The instructions also require correct Polish diacritics and native Polish
+pronunciation rather than anglicised speech. Locale configuration is not an
+acoustic quality guarantee; have a native Polish speaker assess the audio.
+
+Changing these instructions or audio settings requires publishing a new voice
+agent version, updating `AZURE_VOICE_AGENT_VERSION`, and opening a new voice
+session in the browser. The English **Speak status** templates and offline
+browser-speech fallback are unchanged.
+
+Validate the publisher's serialized pronunciation configuration with the isolated
+preview SDK (no Azure calls):
+
+```powershell
+.\.venv-voice\Scripts\python.exe -m unittest tests.test_voice_agent_publisher
+```
 
 ## Foundry Routines (BRK241 slide 11)
 
