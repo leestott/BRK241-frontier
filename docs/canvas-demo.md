@@ -12,6 +12,8 @@ against it return 401, so use the local console for this walkthrough.
 ## Setup
 
 Install the dependencies as described in the [README](../README.md#quick-start).
+Use the [isolated local rehearsal](REPRODUCING.md#local-rehearsal) without real
+integration settings; choosing the local backend alone does not disable webhooks.
 In one terminal, start the console with the deterministic backend:
 
 ```powershell

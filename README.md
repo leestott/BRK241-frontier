@@ -6,6 +6,22 @@
 > Dynamics 365 Field Service** (because most demo tenants don't have D365
 > Field Service provisioned).
 
+## Release status and reproduction
+
+The deployed demo and the latest source are deliberately different during voice
+experiments. As verified on **7 October 2026**, the existing web app still uses
+the `release-20261007-171059` image, canonical voice agent
+`fibreops-noc-voice` **v4**, native `marin`, and browser voice script **v3**.
+The repository includes structured incident facts, browser script **v4** and
+optimized incident instructions published separately as
+`fibreops-noc-voice-incident-candidate` **v3**; these are **not promoted or deployed**.
+Publishing this source does not reproduce the old voice definition automatically.
+
+See [Reproducing and validating the demo](docs/REPRODUCING.md) for isolated setup,
+the deployed image digest/source checkpoint, safe validation, complete matched
+voice-evaluation commands and the distinction between a demo exception and a
+passed quality gate. Agent version numbers are local to each agent/project.
+
 ## Architecture (textual)
 
 ```
@@ -25,6 +41,10 @@ Microsoft Foundry Agent Service (`agent_framework_foundry.FoundryAgent`).
 The `foundry` and `local` backends are available for development. Typed Python
 tools execute in the application; the hosted agent can also use a Foundry IQ
 MCP connection when configured.
+
+The diagram describes the available integration paths, not a live status check.
+The audited deployment currently reports **Teams outbox** and **IQ fixtures**;
+do not describe those paths as verified Teams delivery or live knowledge retrieval.
 
 ### Architecture diagram
 
@@ -90,10 +110,11 @@ service calls, and honours reduced-motion preferences. GitHub displays HTML as
 source; open it from your local checkout, or preview from the repository root:
 
 ```powershell
-python -m http.server 8765 --bind 127.0.0.1 --directory docs
+python -m http.server 8766 --bind 127.0.0.1 --directory docs
 ```
 
-Then open <http://127.0.0.1:8765/services-architecture.html>. The animation is
+Then open <http://127.0.0.1:8766/services-architecture.html> (port 8765 is reserved
+for the mock D365 service). The animation is
 documentation-only and is not deployed into the NOC console.
 
 ## Capabilities
@@ -165,7 +186,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e .
 
 # 2. (Optional) configure real services
-Copy-Item .env.example .env
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 # edit .env -> set AZURE_AI_PROJECT_ENDPOINT, TEAMS_WEBHOOK_URL, EVENT_HUB_FQDN
 az login        # for Foundry + Event Hub via DefaultAzureCredential
 
@@ -342,8 +363,9 @@ and obtain native-speaker approval for pronunciation and translation quality.
 
 Changing these instructions or audio settings requires publishing a new voice
 agent version, updating `AZURE_VOICE_AGENT_VERSION`, and opening a new voice
-session in the browser. The English **Speak status** templates and offline
-browser-speech fallback are unchanged.
+session in the browser. The deployed release retains its original English
+**Speak status** templates. Current source adds exact-count/unknown-value handling
+and structured facts to those templates; offline browser speech remains available.
 
 Validate the publisher's serialized native-speech configuration with the isolated
 preview SDK (no Azure calls):
@@ -365,9 +387,9 @@ service errors, missing audio and incomplete runs fail explicitly.
 Run this against a separate candidate agent before changing the live version:
 
 ```powershell
-python scripts\validate_voice_audio.py `
+python -m scripts.validate_voice_audio `
   --project-endpoint $env:AZURE_AI_PROJECT_ENDPOINT `
-  --agent fibreops-noc-voice-language-candidate --version <candidate-version> `
+  --agent <your-candidate-agent-name> --version <candidate-version> `
   --speech-endpoint $env:AZURE_VOICE_LIVE_ENDPOINT `
   --judge-endpoint <Foundry-cognitive-services-endpoint> `
   --output-dir state\voice-audio-evaluation --repeats 3
@@ -389,9 +411,10 @@ command above to save the full spoken dataset without running its standalone jud
 Then run the SDK evaluation from the repository root:
 
 ```powershell
-python -m pip install -r requirements-evaluation.txt
+python -m venv .venv-evaluation
+.\.venv-evaluation\Scripts\python.exe -m pip install -r requirements-evaluation.txt
 $env:PF_WORKER_COUNT = "2"
-python -m scripts.evaluate_voice_responses `
+.\.venv-evaluation\Scripts\python.exe -m scripts.evaluate_voice_responses `
   --audio-report state\voice-audio-evaluation\report.json `
   --project-endpoint $env:AZURE_AI_PROJECT_ENDPOINT `
   --judge-endpoint <Foundry-cognitive-services-endpoint> `
@@ -406,6 +429,39 @@ and 1/1 for all four custom metrics; averages cannot hide a failure. Incomplete
 audio datasets, evaluator errors, missing scores and outdated language policies
 fail closed. Limited SDK concurrency avoids overwhelming local CLI authentication
 and the judge endpoint.
+Custom evaluators use asynchronous callables with a bounded per-row timeout.
+They share an in-memory, SDK-managed bearer-token cache with serialized refresh,
+instead of creating a credential and invoking developer authentication for every
+row. Tokens are never written to evaluation artifacts. Authentication failures
+still stop acceptance; caching cannot guarantee availability of Entra or network
+gateways.
+Do not wrap their network work in synchronous `asyncio.run` calls: multiple
+synchronous evaluators can exhaust the SDK's shared worker pool at low concurrency.
+
+New collections preserve raw `output_transcript_segments`, joining complete
+segments with line breaks while concatenating streaming deltas within a segment
+unchanged. All spoken preambles remain in the scored text and WAV; no words are
+removed to improve scores. The collection protocol is `response-segments-v2`.
+Historical concatenated reports are labelled `legacy-concatenated-v1`, not
+silently repaired or mixed with new collections.
+
+The revised `voice-language-v2` judge separates style from semantic accuracy and
+distinguishes a negated action, a recommendation and an executed action. It does
+not relax the numeric thresholds. Calibration uses positive and negative
+English/Polish/Arabic examples; an affirmative claim of sending a message must
+still fail when the request forbids sending:
+
+```powershell
+$env:VOICE_JUDGE_LIVE_ENDPOINT = "<Foundry-cognitive-services-endpoint>"
+python -m pytest tests\test_voice_judge_live.py -q -s
+Remove-Item Env:VOICE_JUDGE_LIVE_ENDPOINT
+```
+
+This opt-in calibration makes billed judge requests; offline CI skips it.
+SDK/portal runs carry protocol tags, and comparisons reject different rubric,
+transcript or judge-model versions. Recollect and rescore both production and
+candidate for a new-protocol comparison; do not compare new scores directly to
+the recorded legacy scores below.
 
 Quality iterations retain the full dataset and the same thresholds. The voice
 prompt favours direct, idiomatic answers with connected sentences and no redundant
@@ -443,8 +499,184 @@ usage and requires Entra access to both the judge and project.
 SDK text scores do not certify a native accent: Polish and Arabic audio still
 require native-speaker listening approval.
 
+### Incident-grounded multilingual quality
+
+Use **one multilingual voice agent**, not one production agent per language.
+The per-turn English-default policy is unchanged. Incident briefings distinguish
+observed signals from suspected causes, potentially affected customers from
+confirmed impact, and technician arrival from service restoration.
+Announcements retain structured facts, preserve exact counts, and describe missing
+counts or arrival times as unknown rather than speaking `?` or assuming zero.
+
+The voice definition contains **draft** English, Polish and Modern Standard Arabic
+terminology and critical-incident phrasing. It is not native-speaker-approved.
+Critical updates should be calm and direct, with natural pauses, not faster speech,
+unnecessary greetings or longer sentences merely to improve an evaluation score.
+
+Keep the existing language regression suite. The original `--suite incidents --repeats 2`
+option collects **72 additional turns**: 12 scenarios, three
+response languages and two repeats. These requests are spoken in English with
+explicit target-language instructions; the original suite also covers Polish and
+Arabic input and language reset. Every incident case starts a fresh conversation.
+Controlled read-only tools return synthetic facts; the suite never imports the
+production tool dispatcher, reads customer state, posts to Teams or dispatches anyone.
+Unexpected tools or arguments are recorded as failed tool-use gates.
+The initial incident fixture supports `list_recent_incidents` and matching
+`lookup_incident` calls. A read-only SOP or node lookup outside that fixture is
+an unsupported-tool failure, **not evidence of an unsafe external action**.
+Inspect the trace when interpreting this gate.
+
+If collection is interrupted, `--resume-from <partial-incident-output-directory>`
+can retain its completed sequential prefix and collect the remaining isolated
+incident conversations into a **fresh** output directory. Agent/version, coverage,
+language policy and saved audio are checked; selecting only successful cases is
+rejected. This is not supported for the shared language-reset conversations.
+The original run remains intact, and recovery is disclosed in evaluation metadata
+and comparisons. A recovered collection is not evidence of zero runtime failures.
+
+Scenarios cover loss of light, unreachable nodes, attenuation, bit errors,
+dispatch, assignment without dispatch, unknown impact and suspected causes.
+Recovery without restoration, confirmed restoration, expired ETA and escalation
+are marked **held-out**. Freeze those cases during prompt tuning and report them
+separately; once their failures inform a prompt change, they are no longer an
+untouched holdout and a fresh holdout is needed.
+
+Run the same SDK evaluation command on each complete incident report. In addition
+to the unchanged six gates, incident runs require safe tool use **1/1**, factual
+completeness **1/1** and operational clarity **4/5**. Operational clarity complements
+rather than replaces built-in written Fluency. Both failures remain visible.
+Portal rows retain tool traces, split labels and evaluator reasons; summaries
+include per-language results for both development and held-out subsets.
+
+Compare the candidate, current production definition and preserved earlier baseline
+on identical fixtures and repeats:
+
+```powershell
+python -m scripts.compare_voice_evaluations `
+  --runs state\baseline-evaluation state\production-evaluation state\candidate-evaluation `
+  --output state\voice-comparison.json
+```
+
+Each audio run also writes `listening-review.csv` beside the WAV files. Native
+reviewers should score naturalness and intelligibility from **1 to 5**, check IDs,
+numbers, negation and units, and record corrections. Require at least **4/5** and
+no critical factual misreadings before listening approval. The generated sheet
+starts with `pending`; text evaluation never supplies human approval automatically.
+Keep evaluation audio and completed review sheets out of Git. Publish a separate
+candidate for comparison and keep the app's production version pin unchanged until
+results and listening reviews have been considered.
+
+For the next optimization, use **`--suite incidents-v2 --repeats 2`** on both
+production and candidate: **96 turns each**, balanced across the three languages.
+The original eight development scenarios remain, the four inspected former
+holdout scenarios are labelled **regression**, and four distinct scenarios form
+the new holdout (24 turns). The original `incidents` suite remains available for
+historical reproducibility. New collections save `case-manifest.json` and its
+SHA-256 digest before any cloud calls. Resumption rejects changed manifests or
+transcript protocols, and comparisons require identical factual contracts.
+Freeze the manifest before collection and do not tune against new holdout results.
+
+If scoring finishes but latest-portal polling times out, rerun
+`scripts.evaluate_voice_responses` with the same arguments and **`--resume`**.
+It reuses that directory's SDK scores and portal IDs, checks the saved dataset
+and cloud metadata, and verifies each downloaded row and gate before completing
+the summary. It neither repeats judge calls nor creates a duplicate portal run.
+Keep incomplete/failed runs visible; a polling timeout is not a quality score.
+
+The optimized prompt limits lookup acknowledgements to one per turn, gives
+question-specific answers, states each uncertainty once, and localizes severity
+and arrival/restoration labels without translating identifiers. Terminology is
+still a draft, not native-speaker-reviewed.
+
+When no human listener is available, continue with an **automated-only demo**
+assessment: leave `human_listening_approved=false` and label pronunciation as
+**not verified**. Missing human review is not an automated test failure, nor is it
+a passed listening gate. Any demo promotion with that limitation requires an
+explicit rollout decision; automated text scores do not certify accent or
+native-speaker naturalness.
+
+#### Recorded incident comparison (7 October 2026)
+
+The matched 72-turn runs completed in the SDK and the latest Foundry portal with
+zero evaluator errors. Each language has 24 turns; every row uses all nine gates.
+
+| Definition | All gates | Development | Held-out | Fluency passes (EN / PL / AR) |
+|---|---:|---:|---:|---|
+| Preserved earlier v6 baseline | 28/72 | 18/48 | 10/24 | 14/24 / 8/24 / 14/24 |
+| Canonical production v4 | 27/72 | 16/48 | 11/24 | 14/24 / 9/24 / 12/24 |
+| Incident candidate v2 | 34/72 | 25/48 | 9/24 | 15/24 / 12/24 / 14/24 |
+
+The candidate improves aggregate passes and fluency pass counts in every
+language, but held-out all-gate passes decrease. Its mean fluency remains below
+4/5 (English 3.63, Polish 3.50, Arabic 3.58), so this is not a clean acceptance
+pass. Candidate factual completeness and language selection pass 72/72, while
+the semantic judge flags one English escalation reply. Its reason conflicts
+with the transcript's explicit statement that no messages were sent and with
+the incident judge; the original failed score is retained, not overridden.
+Production has a similar disputed semantic judgment on a Polish escalation.
+
+Candidate collection required recovery after a timeout; final scoring success
+does not erase that runtime failure. Production's single unsupported SOP lookup
+is a fixture-coverage limitation, not evidence of an unsafe external action.
+Native-speaker listening approval remains pending. These results alone do not
+authorize automatic promotion; the production pin remains unchanged pending a
+rollout decision. Earlier scoring attempts failed on authentication/connectivity;
+completed runs and failed-attempt logs are retained separately.
+
 The shared [voice preview evaluation skill](.github/skills/foundry-voice-preview-evaluation/SKILL.md)
 captures this publication, acceptance and rollout procedure for repository agents.
+
+#### Optimized incident comparison (7 October 2026)
+
+These new `incidents-v2` runs use `response-segments-v2` transcripts and the
+`voice-sdk-v2` / `voice-language-v2` evaluation protocols. They are **not directly
+comparable** to the historical 72-turn scores above. Both agents completed
+96 audio turns and all SDK/latest-portal rows, with zero evaluator errors.
+
+| Definition | All nine gates | Development | Regression | Fresh held-out | Fluency passes (EN / PL / AR) |
+|---|---:|---:|---:|---:|---|
+| Canonical production v4 | 69/96 | 35/48 | 18/24 | 16/24 | 25/32 / 21/32 / 28/32 |
+| Incident candidate v3 | 72/96 | 31/48 | 21/24 | 20/24 | 23/32 / 25/32 / 29/32 |
+
+The candidate gains three aggregate and four held-out passes, but **English
+fluency declines** and development performance drops. Language selection and
+input recognition pass 96/96 in both arms; operational clarity also passes
+96/96. Candidate semantics pass 95/96: one English reply converts unconfirmed
+dispatch into definite non-dispatch and invents a pending revised estimate.
+That is a real factual regression, not merely style. One other failed factual
+judgment conflicts with its transcript; the original score is retained.
+
+Therefore this is a **mixed improvement, not a production acceptance pass**.
+Keep canonical v4 and the existing app image until a separate rollout decision.
+The incident fixture only validates its controlled read-only tool surface, not
+live dispatch, notification delivery or the complete application workflow.
+Pronunciation remains unverified without a human listener.
+
+The matched **language regression** also completed, with zero evaluator errors:
+
+| Definition | All six gates | Fluency EN | Fluency PL | Fluency AR | Language selection |
+|---|---:|---:|---:|---:|---:|
+| Canonical production v4 | 24/32 | 18/22 | 2/6 | 4/4 | 32/32 |
+| Incident candidate v3 | 21/32 | 18/22 | 1/6 | 3/4 | 31/32 |
+
+The candidate answered one explicit Arabic request in English. Semantic accuracy,
+natural wording, input recognition and coherence passed all 32 rows in both
+arms. This language-selection regression is another reason **not to promote**.
+The language suite intentionally includes English-default/reset turns, so its
+response-language counts are not balanced like the incident suite.
+
+Latest-portal run IDs for this matched comparison:
+
+| Suite | Production v4 | Candidate v3 |
+|---|---|---|
+| `incidents-v2` | `evalrun_30ce1041d6b14e81a095e1ffd0ce0bf4` | `evalrun_a4adf67f669d429180464f990733c89b` |
+| `language` | `evalrun_9e48196e80f94adf9750de2f7b702aae` | `evalrun_cb2a2c92ac5945ad9c7b1862480acd08` |
+
+Incident portal polling required resumption. Production language publication
+required a fresh publication of its saved SDK scores after Azure CLI credential
+acquisition failed; it was **not rescored**. Completed portal rows were downloaded
+and verified against the original SDK scores and gates. Failed attempts remain
+part of the evidence, not successful reliability tests.
 
 ## Foundry Routines (BRK241 slide 11)
 
@@ -592,7 +824,7 @@ deployed FastAPI app.
 | Event Hub                | `EventHubConsumerClient` with `DefaultAzureCredential`     | In-process async generator                 |
 | Microsoft Teams          | Incoming Webhook (Adaptive Card)                           | Append to `state/teams_outbox.jsonl`       |
 | Foundry Voice Agent Preview | Published `AZURE_VOICE_AGENT_NAME` (managed realtime model) | Outbox + browser speech |
-| D365 Field Service       | Set `D365_MOCK_BASE_URL` to a real Dataverse v9.2 endpoint | FastAPI service (`fibreops.mocks.d365_service`) |
+| D365 Field Service       | Requires a separately implemented authenticated Dataverse connector; changing the mock URL alone is insufficient | FastAPI service (`fibreops.mocks.d365_service`) |
 | Knowledge (SOPs, topology) | Azure AI Search knowledge base and optional custom HTTP connectors | Local JSON + markdown |
 | Foundry IQ grounding     | `FOUNDRY_IQ_SEARCH_ENDPOINT` + `FOUNDRY_IQ_KNOWLEDGE_BASE` | Deterministic fixtures in `tools/knowledge.py` |
 | GitHub Copilot SDK       | Not integrated into this application                       | `fibreops.sdk.FibreOpsCopilotClient` (in-process demo adapter) |

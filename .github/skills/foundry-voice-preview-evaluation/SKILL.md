@@ -50,13 +50,34 @@ runtime to the preview publisher SDK.
 5. Run `python -m scripts.evaluate_voice_responses` with the complete report,
    project endpoint, judge endpoint and fresh output directory. Set
    `$env:PF_WORKER_COUNT = "2"` for bounded local evaluation concurrency.
+   Keep custom evaluators asynchronous with per-row timeouts; synchronous
+   wrappers can deadlock the SDK's shared worker pool at this concurrency.
+   Reuse the shared SDK bearer-token provider for custom judge calls. Do not
+   create per-row credentials or persist access tokens; preserve authentication
+   errors and verify the signed-in account before retrying a failed run.
 6. Verify both the original SDK record and the latest portal's **Evaluations >
    Runs** record. Legacy `azure_ai_project` upload alone does not populate the
    latest portal. Retain original scores and failed gates; check every downloaded
    row and exact agent/version tags. `--sdk-results` republishes matching saved
    results without rescoring. These are on-demand runs, not recurring schedules.
+   If an existing portal run outlasts local polling, use `--resume` with the same
+   output directory and report. It verifies the saved scores and existing run
+   rather than creating another run; preserve timeout logs.
 7. Obtain native-speaker listening review for Polish and Arabic. Text scores and
    non-silent waveforms do not certify pronunciation.
+   Use the generated `listening-review.csv`; all rows start pending.
+   When no listener is available, report automated-only demo results with
+   `human_listening_approved=false`; do not claim a listening pass or acoustic
+   certification. Explicit demo rollout approval is still required.
+   For new incident work, use `--suite incidents-v2 --repeats 2` (96 turns with
+   controlled read-only tools). Its inspected former holdout is now regression
+   data; freeze the new manifest before collecting either agent.
+   Keep the original language suite. Do not tune against the new held-out split
+   or weaken its nine acceptance gates. Preserve all spoken preambles and
+   response transcript segments; do not compare different transcript/rubric
+   protocols. `incidents` remains the historical 72-turn benchmark.
+   Compare identical datasets with `scripts.compare_voice_evaluations` and retain
+   per-language and per-split failures, not just aggregate averages.
 8. Activate a production version only after its acceptance gate passes and rollout
    is approved. For an app-only release, retain the existing version/settings and
    avoid global postdeploy hooks that republish agents.

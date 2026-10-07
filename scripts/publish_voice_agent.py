@@ -40,7 +40,7 @@ def build_definition(
     return VoiceAgentDefinition(
         model_type=VoiceModelType.MANAGED,
         model=model,
-        instructions=spec["instructions"],
+        instructions=spec["instructions"] + "\n\n" + spec.get("incident_instructions", ""),
         audio=VoiceAgentAudioConfig(
             input=VoiceAgentAudioInputConfig(
                 transcription=VoiceAgentInputTranscription(

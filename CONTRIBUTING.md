@@ -18,6 +18,10 @@ questions or comments.
 
 ## Development workflow
 
+Start with the [reproduction guide](docs/REPRODUCING.md); it distinguishes the
+deployed release from experimental voice instructions and keeps evaluation SDKs
+isolated from the application runtime.
+
 ```powershell
 git clone <your-fork-url>
 cd BRK241-frontier
@@ -28,10 +32,12 @@ python -m venv .venv
 ```
 
 The demo can be run **without any Azure credentials** thanks to the
-deterministic `LocalAgent` fallback:
+deterministic `LocalAgent` fallback. Use a clean local environment without real
+integration settings (see the reproduction guide); selecting `local` alone
+does not disable an existing Teams webhook:
 
 ```powershell
-.\.venv\Scripts\python.exe -m fibreops.demo --signals 3
+.\.venv\Scripts\python.exe -m fibreops.demo run --backend local --signals 3
 ```
 
 ## What we accept
