@@ -19,6 +19,7 @@ fibreops = [
     "ui/static/*",
     "data/*.md",
     "data/*.json",
+    "voice_live/*.json",
 ]
 
 [tool.pytest.ini_options]

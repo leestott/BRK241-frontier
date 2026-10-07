@@ -6,13 +6,12 @@
     permissions (Owner or User Access Administrator) on each target scope.
 
 .DESCRIPTION
-    The deployment bicep does NOT create these role assignments because the
-    deploying account is a Contributor on the subscription (not an Owner).
-    Run this script ONCE after `azd up` completes to wire managed-identity
-    auth for Event Hubs, Key Vault, ACR, and the Foundry account.
+    The deployment bicep does not create these role assignments. Run this
+    script after provisioning to wire managed-identity auth for Event Hubs,
+    Key Vault, ACR, and the Foundry account.
 
 .PARAMETER ResourceGroup
-    Resource group containing the FibreOps deployment. Default: rg-fibreops-demo
+    Resource group containing the FibreOps deployment. Defaults to AZURE_RESOURCE_GROUP.
 
 .PARAMETER AppServiceName
     Name of the App Service (Linux container) hosting FibreOps. If omitted,
@@ -42,7 +41,7 @@
     pwsh scripts/grant-mi-roles.ps1 -FoundryResourceGroup rg-my-foundry
 #>
 param(
-    [string]$ResourceGroup        = "rg-fibreops-demo",
+    [string]$ResourceGroup        = $env:AZURE_RESOURCE_GROUP,
     [string]$AppServiceName       = "",
     [string]$FoundryAccountName   = "",
     [string]$FoundryResourceGroup = "",
@@ -50,6 +49,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$grantFailures = 0
+if (-not $ResourceGroup) {
+    throw "Set AZURE_RESOURCE_GROUP or pass -ResourceGroup."
+}
 
 if (-not $FoundryAccountName) {
     $endpoint = $env:AZURE_AI_PROJECT_ENDPOINT
@@ -84,7 +87,7 @@ Write-Host "  principalId = $principalId" -ForegroundColor Green
 $ehNamespace = az resource list -g $ResourceGroup --resource-type Microsoft.EventHub/namespaces --query "[0].id" -o tsv
 $keyVault    = az resource list -g $ResourceGroup --resource-type Microsoft.KeyVault/vaults     --query "[0].id" -o tsv
 $registry    = az resource list -g $ResourceGroup --resource-type Microsoft.ContainerRegistry/registries --query "[0].id" -o tsv
-$voiceLive   = az resource list -g $ResourceGroup --resource-type Microsoft.CognitiveServices/accounts --query "[?kind=='AIServices'] | [0].id" -o tsv
+$voiceLive   = $env:AZURE_VOICE_LIVE_ACCOUNT_ID
 $searchSvc   = az resource list -g $ResourceGroup --resource-type Microsoft.Search/searchServices --query "[0].id" -o tsv
 $foundry     = if ($FoundryAccountName) { az cognitiveservices account show -g $FoundryResourceGroup -n $FoundryAccountName --query id -o tsv } else { "" }
 
@@ -102,6 +105,9 @@ if ($searchSvc) {
 if ($foundry) {
     $grants += @{ Role = "Azure AI Developer";             Scope = $foundry; Desc = "invoke hosted Prompt Agents in Foundry Agent Service" }
     $grants += @{ Role = "Cognitive Services OpenAI User"; Scope = $foundry; Desc = "call the underlying model deployment" }
+    if ($env:FIBREOPS_PUBLISH_VOICE -eq 'true' -and $FoundryProjectName) {
+        $grants += @{ Role = "Foundry User"; Scope = "$foundry/projects/$FoundryProjectName"; Desc = "invoke the Foundry voice agent" }
+    }
 }
 
 foreach ($g in $grants) {
@@ -119,6 +125,7 @@ foreach ($g in $grants) {
         --scope $g.Scope | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  FAILED (you may not have Microsoft.Authorization/roleAssignments/write on this scope)" -ForegroundColor Red
+        $grantFailures++
     } else {
         Write-Host "  OK" -ForegroundColor Green
     }
@@ -130,6 +137,7 @@ if ($searchSvc) {
     $searchName = ($searchSvc -split "/")[-1]
     Write-Host "Enabling RBAC (aadOrApiKey) auth on search service '$searchName' (Foundry IQ MCP)..." -ForegroundColor Cyan
     az search service update --name $searchName --resource-group $ResourceGroup --auth-options aadOrApiKey --aad-auth-failure-mode http403 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { $grantFailures++ }
     Write-Host ($LASTEXITCODE -eq 0 ? "  OK" : "  FAILED (enable manually: az search service update --auth-options aadOrApiKey --aad-auth-failure-mode http403)") -ForegroundColor ($LASTEXITCODE -eq 0 ? "Green" : "Red")
 }
 
@@ -168,16 +176,15 @@ if ($foundry -and $registry) {
         }
     }
     if ($foundryProjectName) {
-        $projUrl = "https://management.azure.com/subscriptions/$subId/resourceGroups/$FoundryResourceGroup/providers/Microsoft.CognitiveServices/accounts/$FoundryAccountName/projects/$foundryProjectName?api-version=2025-06-01"
-        $foundryPrincipalId = az rest --method get --url $projUrl --query "identity.principalId" -o tsv 2>$null
+        $projectId = "/subscriptions/$subId/resourceGroups/$FoundryResourceGroup/providers/Microsoft.CognitiveServices/accounts/$FoundryAccountName/projects/$foundryProjectName"
+        $foundryPrincipalId = az resource show --ids $projectId --api-version 2025-06-01 --query "identity.principalId" -o tsv
         Write-Host "  project '$foundryProjectName' MI principalId = $foundryPrincipalId" -ForegroundColor DarkGray
     }
     else {
-        Write-Host "  Could not resolve a Foundry project name; falling back to the account MI (hosted-agent pulls may still fail)." -ForegroundColor Yellow
-        $foundryPrincipalId = az cognitiveservices account show -g $FoundryResourceGroup -n $FoundryAccountName --query identity.principalId -o tsv
+        throw "Could not resolve the Foundry project identity for hosted-agent image pulls."
     }
     if (-not $foundryPrincipalId) {
-        Write-Host "  Foundry project has no system-assigned identity; enable it then re-run, or grant AcrPull manually." -ForegroundColor Yellow
+        throw "Foundry project has no system-assigned identity for hosted-agent image pulls."
     }
     else {
         $existing = az role assignment list --assignee-object-id $foundryPrincipalId --assignee-principal-type ServicePrincipal --scope $registry --role "AcrPull" --query "[0].id" -o tsv 2>$null
@@ -191,6 +198,7 @@ if ($foundry -and $registry) {
                 --role "AcrPull" `
                 --scope $registry | Out-Null
             if ($LASTEXITCODE -ne 0) {
+                $grantFailures++
                 Write-Host "  FAILED (need Microsoft.Authorization/roleAssignments/write on the registry)" -ForegroundColor Red
                 # Delegated 'Foundry Owner' has an ABAC condition that only permits
                 # assigning a fixed allow-list of Foundry/AI roles -- AcrPull is NOT
@@ -217,6 +225,7 @@ if ($foundry -and $registry) {
             }
             else {
                 az role assignment create --assignee-object-id $foundryPrincipalId --assignee-principal-type ServicePrincipal --role "Search Index Data Reader" --scope $searchSvc | Out-Null
+                if ($LASTEXITCODE -ne 0) { $grantFailures++ }
                 Write-Host ($LASTEXITCODE -eq 0 ? "  project MI granted Search Index Data Reader." : "  FAILED to grant project MI Search Index Data Reader.") -ForegroundColor ($LASTEXITCODE -eq 0 ? "Green" : "Red")
             }
         }
@@ -233,6 +242,7 @@ if ($foundry -and $registry) {
         Write-Host "  Enabling registry ARM-auth policy (required for Foundry MI pulls)..." -ForegroundColor Cyan
         az acr config authentication-as-arm update --registry ($registry -split "/")[-1] --status enabled --query "status" -o tsv 2>$null | Out-Null
         if ($LASTEXITCODE -ne 0) {
+            $grantFailures++
             Write-Host "  FAILED to enable ARM-auth; run manually: az acr config authentication-as-arm update --registry <acr> --status enabled" -ForegroundColor Red
         } else {
             Write-Host "  OK" -ForegroundColor Green
@@ -247,3 +257,4 @@ Write-Host "       az webapp config set -g $ResourceGroup -n $AppServiceName --g
 Write-Host "  2. Disable ACR admin user:  az acr update -n <acr-name> --admin-enabled false" -ForegroundColor Cyan
 Write-Host "  3. Restart the App Service to pick up the new permissions:" -ForegroundColor Cyan
 Write-Host "       az webapp restart -g $ResourceGroup -n $AppServiceName"
+if ($grantFailures) { throw "$grantFailures required managed-identity grants or registry settings failed." }

@@ -1,8 +1,7 @@
 // Bicep — FibreOps demo infrastructure
 // Provisions the Azure services required for the end-to-end demo.
-// Foundry project, model deployment, identity and RBAC are intentionally
-// outside this template — provision those in the Foundry portal once and
-// then set AZURE_AI_PROJECT_ENDPOINT in the local .env.
+// Foundry account, project and model are provisioned alongside the app.
+// Workload RBAC is granted by the post-deploy script.
 
 targetScope = 'resourceGroup'
 
@@ -21,11 +20,30 @@ param eventHubSku string = 'Standard'
 @description('Container image reference (registry/repo:tag) for the FibreOps NOC service. AZD overrides this after the first build.')
 param containerImageName string = 'mcr.microsoft.com/k8se/quickstart:latest'
 
-@description('Foundry project endpoint (https://<acct>.services.ai.azure.com/api/projects/<proj>). Empty = run with local backend.')
+@description('Optional external Foundry project endpoint. Empty = use the project provisioned here.')
 param azureAiProjectEndpoint string = ''
 
 @description('Foundry model deployment name.')
-param azureAiModelDeployment string = 'gpt-4.1-mini'
+param azureAiModelDeployment string = 'gpt-5.4-mini'
+
+@description('Published Foundry Voice Agent name. Empty until the preview agent is created.')
+param azureVoiceAgentName string = ''
+
+@description('Published voice-agent version; empty uses the latest.')
+param azureVoiceAgentVersion string = ''
+
+@description('Azure standard voice for the separately published voice agent.')
+param azureVoiceAgentVoice string = 'en-GB-OllieMultilingualNeural'
+
+@description('Single-tenant Entra app registration client ID for App Service sign-in.')
+param entraClientId string
+
+@secure()
+@description('Entra app registration credential, held only in the ignored AZD environment and Azure Key Vault.')
+param entraClientSecret string
+
+@description('Entra object ID of the initial operator allowed to use the web demo.')
+param entraAllowedUserObjectId string
 
 @description('Agent backend resolution: auto | hosted | foundry | local')
 @allowed([ 'auto', 'hosted', 'foundry', 'local' ])
@@ -37,18 +55,6 @@ param azureVoiceLiveEndpoint string = ''
 @description('Azure Voice Live API key (Speech / AI Services resource key). Required when azureVoiceLiveEndpoint is set.')
 @secure()
 param azureVoiceLiveApiKey string = ''
-
-@description('Default voice for one-shot TTS, e.g. en-GB-RyanNeural. Empty = library default.')
-param azureVoiceLiveVoice string = 'en-GB-RyanNeural'
-
-@description('Voice Live managed model name (e.g. gpt-4o-mini, gpt-realtime, gpt-4.1-mini). NOT an Azure OpenAI deployment name — Voice Live models are fully managed and must not be deployed.')
-param azureVoiceLiveModel string = 'gpt-4o-mini'
-
-@description('Published Foundry agent id used by the duplex "Talk to agent" mic session. Empty disables the mic button.')
-param azureVoiceLiveAgentId string = ''
-
-@description('Voice Live realtime API version query parameter.')
-param azureVoiceLiveApiVersion string = '2025-05-01-preview'
 
 @description('Provision a Speech / AI Services account in this resource group for Voice Live. Set false to bring your own.')
 param provisionVoiceLive bool = true
@@ -70,6 +76,9 @@ param provisionFoundryIq bool = true
 @allowed([ 'basic', 'standard' ])
 param searchSku string = 'basic'
 
+@description('Override the Azure AI Search region when the deployment region has no Search capacity.')
+param searchLocation string = ''
+
 @description('Foundry IQ knowledge base name (created post-deploy by scripts/provision_foundry_iq.py).')
 param foundryIqKnowledgeBase string = 'fibreops-knowledge-base'
 
@@ -84,7 +93,53 @@ var planName = '${namePrefix}-plan-${suffix}'
 var webName = toLower('${namePrefix}-noc-${substring(suffix, 0, 6)}')
 var searchName = toLower('${namePrefix}-search-${substring(suffix, 0, 8)}')
 var voiceLiveAccountName = toLower('${namePrefix}-aisvc-${substring(suffix, 0, 6)}')
+var foundryAccountName = toLower('${namePrefix}-foundry-${substring(suffix, 0, 6)}')
+var foundryProjectName = '${namePrefix}-agents'
 var voiceLiveRegion = empty(voiceLiveLocation) ? location : voiceLiveLocation
+
+resource foundryAccount 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
+  name: foundryAccountName
+  location: location
+  kind: 'AIServices'
+  sku: { name: 'S0' }
+  identity: { type: 'SystemAssigned' }
+  properties: {
+    allowProjectManagement: true
+    customSubDomainName: foundryAccountName
+    disableLocalAuth: true
+    publicNetworkAccess: 'Enabled'
+  }
+}
+
+resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-06-01' = {
+  parent: foundryAccount
+  name: foundryProjectName
+  location: location
+  identity: { type: 'SystemAssigned' }
+  properties: {
+    displayName: 'FibreOps agents'
+  }
+}
+
+resource foundryModel 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
+  parent: foundryAccount
+  name: azureAiModelDeployment
+  sku: {
+    name: 'GlobalStandard'
+    capacity: 200
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: 'gpt-5.4-mini'
+      version: '2026-03-17'
+    }
+  }
+}
+
+var resolvedProjectEndpoint = empty(azureAiProjectEndpoint)
+  ? 'https://${foundryAccountName}.services.ai.azure.com/api/projects/${foundryProjectName}'
+  : azureAiProjectEndpoint
 
 resource law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: lawName
@@ -177,6 +232,14 @@ resource voiceLiveKeySecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = if 
   }
 }
 
+resource entraAuthSecret 'Microsoft.KeyVault/vaults/secrets@2024-11-01' = {
+  parent: kv
+  name: 'MICROSOFT-PROVIDER-AUTHENTICATION-SECRET'
+  properties: {
+    value: entraClientSecret
+  }
+}
+
 resource acr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' = {
   name: acrName
   location: location
@@ -210,7 +273,7 @@ resource plan 'Microsoft.Web/serverfarms@2024-04-01' = {
 // scripts/provision_foundry_iq.py; this only stands up the service + its MI.
 resource search 'Microsoft.Search/searchServices@2024-06-01-preview' = if (provisionFoundryIq) {
   name: searchName
-  location: location
+  location: empty(searchLocation) ? location : searchLocation
   sku: { name: searchSku }
   identity: { type: 'SystemAssigned' }
   properties: {
@@ -260,8 +323,9 @@ resource web 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'WEBSITES_PORT', value: '8800' }
         { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'false' }
         { name: 'FIBREOPS_AGENT_BACKEND', value: fibreopsAgentBackend }
-        { name: 'AZURE_AI_PROJECT_ENDPOINT', value: azureAiProjectEndpoint }
+        { name: 'AZURE_AI_PROJECT_ENDPOINT', value: resolvedProjectEndpoint }
         { name: 'AZURE_AI_MODEL_DEPLOYMENT', value: azureAiModelDeployment }
+        { name: 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET', value: '@Microsoft.KeyVault(VaultName=${kv.name};SecretName=${entraAuthSecret.name})' }
         { name: 'EVENT_HUB_FQDN', value: '${ehNamespace.name}.servicebus.windows.net' }
         { name: 'EVENT_HUB_NAME', value: eh.name }
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appi.properties.ConnectionString }
@@ -269,16 +333,48 @@ resource web 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'FIBREOPS_UI_HOST', value: '0.0.0.0' }
         { name: 'FIBREOPS_UI_PORT', value: '8800' }
         { name: 'KEY_VAULT_NAME', value: kv.name }
-        { name: 'AZURE_VOICE_LIVE_ENDPOINT', value: resolvedVoiceLiveEndpoint }
-        { name: 'AZURE_VOICE_LIVE_API_KEY', value: hasVoiceLiveKey ? '@Microsoft.KeyVault(VaultName=${kv.name};SecretName=${voiceLiveSecretName})' : '' }
-        { name: 'AZURE_VOICE_LIVE_VOICE', value: azureVoiceLiveVoice }
-        { name: 'AZURE_VOICE_LIVE_MODEL', value: azureVoiceLiveModel }
-        { name: 'AZURE_VOICE_LIVE_AGENT_ID', value: azureVoiceLiveAgentId }
-        { name: 'AZURE_VOICE_LIVE_API_VERSION', value: azureVoiceLiveApiVersion }
+        { name: 'AZURE_VOICE_AGENT_NAME', value: azureVoiceAgentName }
+        { name: 'AZURE_VOICE_AGENT_VERSION', value: azureVoiceAgentVersion }
+        { name: 'AZURE_VOICE_AGENT_VOICE', value: azureVoiceAgentVoice }
         { name: 'FOUNDRY_IQ_SEARCH_ENDPOINT', value: resolvedSearchEndpoint }
         { name: 'FOUNDRY_IQ_KNOWLEDGE_BASE', value: provisionFoundryIq ? foundryIqKnowledgeBase : '' }
         { name: 'FOUNDRY_IQ_MCP_CONNECTION', value: provisionFoundryIq ? 'fibreops-kb-mcp' : '' }
       ]
+    }
+  }
+}
+
+resource webAuth 'Microsoft.Web/sites/config@2022-09-01' = {
+  parent: web
+  name: 'authsettingsV2'
+  properties: {
+    platform: { enabled: true }
+    globalValidation: {
+      requireAuthentication: true
+      unauthenticatedClientAction: 'RedirectToLoginPage'
+      redirectToProvider: 'azureactivedirectory'
+      excludedPaths: [ '/healthz' ]
+    }
+    identityProviders: {
+      azureActiveDirectory: {
+        enabled: true
+        registration: {
+          clientId: entraClientId
+          clientSecretSettingName: 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET'
+          openIdIssuer: '${environment().authentication.loginEndpoint}${subscription().tenantId}/v2.0'
+        }
+        validation: {
+          allowedAudiences: [ entraClientId ]
+          defaultAuthorizationPolicy: {
+            allowedPrincipals: {
+              identities: [ entraAllowedUserObjectId ]
+            }
+          }
+        }
+      }
+    }
+    login: {
+      tokenStore: { enabled: true }
     }
   }
 }
@@ -296,6 +392,9 @@ resource web 'Microsoft.Web/sites@2024-04-01' = {
 
 output AZURE_LOCATION string = location
 output AZURE_RESOURCE_GROUP string = resourceGroup().name
+output AZURE_AI_PROJECT_ENDPOINT string = resolvedProjectEndpoint
+output AZURE_FOUNDRY_ACCOUNT_NAME string = foundryAccount.name
+output AZURE_FOUNDRY_PROJECT_NAME string = foundryProject.name
 output AZURE_APP_SERVICE_PLAN_NAME string = plan.name
 output AZURE_APP_SERVICE_NAME string = web.name
 output AZURE_APP_SERVICE_PRINCIPAL_ID string = web.identity.principalId
@@ -315,4 +414,3 @@ output AZURE_LOG_ANALYTICS_WORKSPACE_ID string = law.id
 output AZURE_VOICE_LIVE_ACCOUNT_NAME string = provisionVoiceLive ? voiceLiveAccount.name : ''
 output AZURE_VOICE_LIVE_ACCOUNT_ID string = provisionVoiceLive ? voiceLiveAccount.id : ''
 output AZURE_VOICE_LIVE_ENDPOINT string = resolvedVoiceLiveEndpoint
-

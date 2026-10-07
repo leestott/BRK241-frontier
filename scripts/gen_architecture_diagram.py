@@ -229,8 +229,8 @@ def main() -> Path:
          [("D365 Field Service (mock)", F_BODY_B, INK),
           ("FastAPI Dataverse-shaped REST", F_SMALL, MUTED)], TEAL)
     chip(d, (980, 340, 1310, 398),
-         [("Azure AI Voice Live", F_BODY_B, INK),
-          ("SSML status updates per severity", F_SMALL, MUTED)], PURPLE)
+         [("Foundry Voice Agent (Preview)", F_BODY_B, INK),
+          ("duplex audio via NOC WebSocket proxy", F_SMALL, MUTED)], PURPLE)
     chip(d, (980, 410, 1310, 468),
          [("GitHub Copilot SDK adapter", F_BODY_B, INK),
           ("chat over the same orchestrator", F_SMALL, MUTED)], INK)
@@ -259,12 +259,12 @@ def main() -> Path:
     tools = (400, 600, 1330, 800)
     panel(d, tools, "Tools & Knowledge  (typed Python functions)", PURPLE)
     tool_defs = [
-        ("knowledge", "SOPs • topology • Web/Work IQ"),
+        ("knowledge", "SOPs • topology • Foundry IQ"),
         ("ticketing", "create / update D365 incident"),
         ("teams", "outage notice • status update"),
         ("dispatch", "find + assign engineer"),
         ("memory", "remember / recall procedural"),
-        ("voice", "speak status (Voice Live)"),
+        ("voice", "status text for voice agent"),
     ]
     tx = 420
     tw = (1310 - 420 - 5 * 14) / 6
@@ -304,7 +304,7 @@ def main() -> Path:
     # orchestrator agents -> integrations
     arrow(d, (880, 300), (960, 229), AZURE, label="Teams", label_off=(0, -16))
     arrow(d, (880, 361), (960, 299), TEAL, label="ticket", label_off=(0, 4))
-    arrow(d, (880, 431), (960, 369), PURPLE, label="voice", label_off=(0, 6))
+    arrow(d, (880, 431), (960, 369), PURPLE, label="status", label_off=(0, 6))
     # orchestrator <-> tools
     arrow(d, (620, 540), (620, 600), PURPLE, label="invoke tools", label_off=(78, -10))
     arrow(d, (740, 600), (740, 540), PURPLE)

@@ -26,17 +26,19 @@ services:
       remoteBuild: true
 
 # Finish the COMPLETE solution after the NOC console image is deployed.
-# `azd up` provisions infra (incl. the Voice Live AI Services account) and the
+# `azd up` provisions infra (incl. the Foundry project) and the
 # NOC console; this hook then (1) publishes the three role Prompt Agents the
 # default `hosted` backend binds to — required for the console to produce runs —
 # and (2) optionally deploys the containerised hosted agent. Logic lives in
-# scripts/postdeploy.ps1. continueOnError keeps a Foundry RBAC gap from failing
-# the web-app deploy.
+# scripts/postdeploy.ps1. Publish failures fail the deployment so the NOC is
+# never reported healthy with an unusable agent backend.
 #   - Publish runs by default; disable with `azd env set FIBREOPS_SKIP_PUBLISH true`.
 #   - Hosted agent is OFF by default; enable with `azd env set FIBREOPS_DEPLOY_HOSTED true`.
+#   - Voice Agents Preview publisher uses an isolated, ignored environment;
+#     enable with `azd env set FIBREOPS_PUBLISH_VOICE true`.
 hooks:
   postdeploy:
     shell: pwsh
-    continueOnError: true
+    continueOnError: false
     interactive: true
     run: ./scripts/postdeploy.ps1
