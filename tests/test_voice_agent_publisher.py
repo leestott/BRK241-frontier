@@ -33,10 +33,6 @@ class VoiceAgentPublisherTests(unittest.TestCase):
         self.assertIn("Answer directly without announcing the chosen language", definition["instructions"])
         self.assertIn("without adding causal links or new facts", definition["instructions"])
         self.assertIn("keep one-sentence requests to a single sentence", definition["instructions"])
-        self.assertIn("at most one short acknowledgement", definition["instructions"])
-        self.assertIn("State each uncertainty once", definition["instructions"])
-        self.assertIn("Localize human-readable severity and status labels", definition["instructions"])
-        self.assertIn("Requests for recommended actions do not authorize execution", definition["instructions"])
         self.assertEqual(len(definition["tools"]), 5)
 
     def test_explicit_native_voice_does_not_add_locale_bias(self) -> None:

@@ -5,9 +5,10 @@
 > **Failure budget:** rehearse the local workflow as a fallback; it does not replace or verify cloud integrations
 
 Use the [reproduction and deployed-release guide](REPRODUCING.md) before rehearsal.
-The deployed console remains on canonical voice **v4** and the earlier app image;
-the incident candidate **v3** and new structured-facts UI are separate experiments,
-not an implicit upgrade. No native-speaker listener is available for this run:
+The deployed console remains on canonical voice **v4** and browser script **v3**.
+This branch's code matches deployed checkpoint `17441e1`. The incident candidate
+**v3** and structured-facts UI are preserved at experimental commit `c80c2e9`,
+not in this branch's active code. No native-speaker listener is available for this run:
 describe pronunciation as **not verified**, even when automated gates pass.
 The audited deployed console uses **Teams outbox** and **IQ fixtures**. The
 optional live-channel narration below applies only after separately configuring

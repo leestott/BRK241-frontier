@@ -3,7 +3,6 @@
 {% else %}
   <ul class="space-y-2"
       data-latest-text="{{ utterances[0].text|e }}"
-      data-latest-facts='{{ utterances[0].get("facts")|tojson }}'
       data-latest-voice="{{ utterances[0].voice|e }}"
       data-latest-severity="{{ utterances[0].severity|e }}"
       data-latest-incident="{{ utterances[0].incident_id|e }}">

@@ -14,15 +14,16 @@ _OUTBOX = Path("state") / "voice_outbox.jsonl"
 # so they read well as TTS — the optimiser can mutate these later.
 _PHRASES: dict[str, str] = {
     "outage_detected": (
-        "A {severity} incident involving {signal_description} has been detected{location}. "
-        "{impact} {cause}"
+        "Heads up team — a {severity} fibre outage has been detected on node "
+        "{node_id} in {region}. Approximately {customers} customers are "
+        "potentially affected. Probable cause: {probable_cause}."
     ),
     "engineer_dispatched": (
-        "{engineer} has been dispatched to incident {incident_id}. "
-        "{arrival} The service restoration time has not been confirmed."
+        "Engineer {engineer} has been dispatched to incident {incident_id}. "
+        "Estimated time of arrival is {eta} minutes."
     ),
     "incident_resolved": (
-        "Incident {incident_id}{location} has been resolved by "
+        "Incident {incident_id} on node {node_id} has been resolved by "
         "{engineer}. Service is now restored."
     ),
 }
@@ -59,7 +60,8 @@ def _render_phrase(phrase_key: str, **fmt: Any) -> str:
     template = _PHRASES.get(phrase_key)
     if template is None:
         raise KeyError(f"Unknown voice phrase '{phrase_key}'. Add it to _PHRASES.")
-    return template.format(**fmt)
+    safe = {k: ("?" if v is None else v) for k, v in fmt.items()}
+    return template.format(**safe)
 
 
 def _record_announcement(payload: dict[str, Any]) -> dict[str, Any]:
@@ -81,51 +83,24 @@ def speak_status_update(
     probable_cause: str | None = None,
     engineer: str | None = None,
     eta: int | None = None,
-    signal_type: str | None = None,
 ) -> dict[str, Any]:
     """Speak a one-line voice update for an incident.
 
     Returns a payload describing the utterance (always — webhook or outbox).
     The browser sends the recorded text to the voice agent when requested.
     """
-    if customers is not None and customers < 0:
-        raise ValueError("Customer count cannot be negative")
-    if eta is not None and eta < 0:
-        raise ValueError("Arrival ETA cannot be negative")
-    signals = {
-        "loss_of_light": "loss of optical signal",
-        "node_unreachable": "an unreachable node",
-        "high_attenuation": "high signal attenuation",
-        "ber_degradation": "an increased bit-error rate",
-    }
-    if signal_type is not None and signal_type not in signals:
-        raise ValueError(f"Unknown incident signal type: {signal_type}")
     with tool_span(
         "voice.speak_status_update", incident_id=incident_id, phrase=phrase, severity=severity
     ):
-        location = f" on node {node_id}" if node_id else ""
-        if region:
-            location += f" in {region}"
         text = _render_phrase(
             phrase,
             severity=severity,
             node_id=node_id,
             region=region,
-            location=location,
-            signal_description=signals.get(signal_type, "a network fault"),
-            impact=(
-                f"The incident may affect {customers:,} customers."
-                if customers is not None else "The number of affected customers is not yet known."
-            ),
-            cause=(
-                f"The suspected cause is {probable_cause}; it has not been confirmed."
-                if probable_cause else "The cause has not been confirmed."
-            ),
-            engineer=engineer or "A technician",
-            arrival=(
-                f"The estimated technician arrival time is {eta} minutes."
-                if eta is not None else "The technician arrival time is not yet available."
-            ),
+            customers=f"{customers:,}" if customers is not None else "?",
+            probable_cause=probable_cause,
+            engineer=engineer,
+            eta=eta,
             incident_id=incident_id,
         )
         voice = _voice_for_severity(severity)
@@ -138,17 +113,6 @@ def speak_status_update(
             "text": text,
             "ssml": ssml,
             "severity": severity,
-            "facts": {
-                "incident_id": incident_id, "node_id": node_id, "region": region,
-                "signal_type": signal_type,
-                "severity": severity, "potentially_affected_customers": customers,
-                "customer_count_is_approximate": False,
-                "suspected_cause": probable_cause, "cause_confirmed": False,
-                "dispatch_status": "dispatched" if phrase == "engineer_dispatched" else "unknown",
-                "engineer": engineer, "technician_arrival_eta_minutes": eta,
-                "service_restoration_eta_minutes": None,
-                "restoration_confirmed": phrase == "incident_resolved",
-            },
         }
         payload["delivery"] = _record_announcement(payload)
         return payload

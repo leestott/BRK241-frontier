@@ -19,8 +19,9 @@ questions or comments.
 ## Development workflow
 
 Start with the [reproduction guide](docs/REPRODUCING.md); it distinguishes the
-deployed release from experimental voice instructions and keeps evaluation SDKs
-isolated from the application runtime.
+production-aligned code from the separately preserved experiment and keeps
+evaluation SDKs isolated from the application runtime. Do not merge experimental
+voice definitions or UI changes into this branch merely to reproduce a benchmark.
 
 ```powershell
 git clone <your-fork-url>
