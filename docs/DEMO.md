@@ -11,13 +11,13 @@
 Run these once before walking on stage. Each line is copy-paste-safe.
 
 ```powershell
-# Activate the venv and confirm SDK versions are present
+# Confirm the installed SDKs are present
 cd <path-to-this-repo>
 .\.venv\Scripts\python.exe -c "import agent_framework, agent_framework_foundry, azure.ai.projects; print('OK')"
 
 # 2) Make sure the .env is filled in
 #    AZURE_AI_PROJECT_ENDPOINT=https://<acct>.services.ai.azure.com/api/projects/<proj>
-#    AZURE_AI_MODEL_DEPLOYMENT=gpt-4.1-mini   (or whatever deployment you have)
+#    AZURE_AI_MODEL_DEPLOYMENT=gpt-5.4-mini   (or whatever deployment you have)
 #    TEAMS_WEBHOOK_URL=https://...           (Power Automate / channel webhook)
 #    EVENT_HUB_FQDN=<ns>.servicebus.windows.net
 #    EVENT_HUB_NAME=fibre-signals
@@ -34,7 +34,7 @@ az login
 
 # 5) Warm-up run (NOT shown to audience — primes connections, caches)
 .\.venv\Scripts\python.exe -m fibreops.demo --signals 1 --skip-optimiser
-#  -> first Teams card should arrive within ~5s; verify it lands in the channel
+#  -> if a webhook is configured, verify the card arrives in Teams
 
 # 6) Reset the state for a clean stage run
 Remove-Item state\runs.jsonl, state\traces.jsonl, state\teams_outbox.jsonl, `
@@ -47,7 +47,10 @@ Remove-Item state\runs.jsonl, state\traces.jsonl, state\teams_outbox.jsonl, `
 #    d) Foundry portal → Agents page (Act 5 prop, kept minimised until needed)
 ```
 
-> 🛟 **If Foundry publish fails on stage day**: don't panic. Drop `FIBREOPS_AGENT_BACKEND=local` into the shell and every act still works against the deterministic `LocalAgent` — same orchestrator, same tools, same Teams cards, same optimiser. The only thing that changes is *where* the reasoning happens.
+> 🛟 **If Foundry publish fails on stage day**: set
+> `$env:FIBREOPS_AGENT_BACKEND="local"` in PowerShell and rerun the demo.
+> The deterministic `LocalAgent` keeps the orchestrator and local tools
+> available, but does not demonstrate hosted inference.
 
 ---
 
@@ -58,7 +61,7 @@ Remove-Item state\runs.jsonl, state\traces.jsonl, state\teams_outbox.jsonl, `
 **On screen:** terminal showing the source tree.
 
 **Say:**
-> "A national fibre operator has tens of thousands of optical line terminals. Each one continuously emits health telemetry — light levels, BER, reachability. Today, when something breaks, a human in a NOC reads a dashboard, opens an ITSM ticket, calls a dispatcher, and types into Teams. That whole loop is what we're going to replace with autonomous agents — running on Azure, in your subscription, in production patterns."
+> "A national fibre operator has tens of thousands of optical line terminals. Each one continuously emits health telemetry — light levels, BER, reachability. Today, when something breaks, a human in a NOC reads a dashboard, opens an ITSM ticket, calls a dispatcher, and types into Teams. This demo explores how agents can help with that loop; review the decisions before using them operationally."
 
 **Type:**
 ```powershell
@@ -100,7 +103,7 @@ Show that **Resolved backend: hosted** — agents are in Foundry, not in this Py
 **On screen:** terminal full-screen.
 
 **Say:**
-> "I'm going to inject three telemetry signals — one critical loss-of-light in London, one medium attenuation in Manchester, one high-severity loss-of-light recurrence. Watch the orchestrator route each signal through the three agents, in real time."
+> "I'm going to inject three deterministic telemetry signals. Watch the orchestrator route each signal through the agent pipeline; the exact analysis and timing depend on the active backend."
 
 **Type:**
 ```powershell
@@ -111,9 +114,9 @@ Show that **Resolved backend: hosted** — agents are in Foundry, not in this Py
 
 | Panel                               | What to say                                                                                                                                       |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Configuration table                 | "Hosted backend, real Foundry, real Event Hub, real Teams, mock D365 — every integration but D365 is live."                                       |
+| Configuration table                 | "Check the backend and each integration status before describing it as live; an unset webhook uses the local Teams outbox, and the signal generator is not Event Hubs." |
 | `Generated 3 telemetry signals`     | "Deterministic seeds so I can rehearse — in production this is the consumer group on the hub."                                                    |
-| 🧠 **IncidentAnalysisAgent**         | "Notice the **typed JSON** — summary, probable cause, customer impact, severity. The agent escalated severity from `high` to `critical` because >5,000 customers are served by this node — that's a rule encoded in the prompt." |
+| 🧠 **IncidentAnalysisAgent**         | "Notice the structured analysis — summary, probable cause, customer impact and severity. Compare the output against the input rather than assuming a specific escalation." |
 | 🛰️ **NetOpsCoordinatorAgent**       | "Ticket `INC-XXXX` just appeared in D365 — let me show you" (pivot to Teams, see the **Adaptive Card** arrive in the channel)                     |
 | 🚐 **FieldDispatchAgent**           | "Engineer chosen by skill, region, and shift — no human in the loop. The card in Teams just updated with the ETA."                                |
 
@@ -151,7 +154,7 @@ Get-Content state\runs.jsonl | Select-Object -First 1 | ConvertFrom-Json | Conve
 **On screen:** the optimiser table that's still on the terminal from Act 3.
 
 **Say:**
-> "Five-criterion rubric: did the analysis come back complete, was severity consistent with customer impact, did a ticket land in ITSM, did dispatch policy match severity, was an SOP cited. Run 2 scored 0.90 — the agent didn't escalate a medium attenuation that was hitting six thousand customers. The optimiser **wrote its own improvement suggestion**: add a hard rule for >5k customers. Next iteration of the prompt, that rubric criterion passes."
+> "The five-criterion rubric checks analysis completeness, severity consistency, ticket creation, dispatch policy and SOP references. The score depends on this run; inspect its actual reasons and suggestions. Prompt changes need another evaluation before claiming they improved the result."
 
 **Pivot to Application Insights** (one Foundry-portal-or-AppInsights tab) and run a query from `docs/KQL.md`:
 
@@ -165,7 +168,10 @@ dependencies
 ```
 
 **Say:**
-> "Same traces, indexed in Application Insights. The optimiser feeds back into the prompt versioning in Foundry — `instructions_v1`, `_v2`, `_v3`. This is the loop that turns a demo into a system."
+> "These spans can be queried in Application Insights when Azure Monitor
+> export is configured and ingestion has been verified. The optimiser
+> suggests changes; we still have to review, test and publish a prompt
+> revision ourselves."
 
 ---
 
@@ -185,8 +191,8 @@ $j | ConvertTo-Json -Depth 5 | Set-Content $f
 .\.venv\Scripts\python.exe -m fibreops.demo --signals 1
 ```
 Dispatch returns `NO_ENGINEER_AVAILABLE`, the optimiser flags `dispatch_policy`.
-**Restore the file with `git checkout -- $f`** (or repeat the snippet with
-`$e.on_shift = $true`) before the next act.
+Back up `src\fibreops\data\engineers.json` before this optional failure
+demo, and restore that backup afterward; do not discard unrelated edits.
 
 ### 6b. "What if D365 is down?"
 
@@ -208,7 +214,7 @@ The demo runs identically against the deterministic `LocalAgent`. Use this as yo
 
 ## Closing line *(15s)*
 
-> "Three agents, one orchestrator, real Foundry, real Teams, real Event Hub, real evaluation loop. Same code path local for dev, hosted in Foundry Agent Service for prod. Zero connection strings. One subscription. The repo is on the QR code — go build something."
+> "Three agent roles, one orchestrator, and a local fallback. Foundry hosting, Teams delivery and Event Hubs are available when configured; the default signal source and ticket service are demos. Inspect traces and scores, then iterate with tests before adopting this pattern."
 
 ---
 
@@ -276,39 +282,38 @@ Suggested narration overlay:
   section).
 - **Act 2b (Routines, optional)** — flip `$env:FIBREOPS_NETOPS_ROUTINE = "1"`
   before launch and the `netops · routine` pill turns violet. Same UI, same
-  trace shape — narration line: *"the NetOps coordinator is now a Foundry
-  Routine, the same three deterministic steps every time."*
+  trace shape — narration line: *"the NetOps coordinator now runs the local
+  routine implementation, the same three deterministic steps every time."*
 - **Act 3 (Teams)** — point at the *Teams card preview* pane (auto-polled
   every 5 s) — the same Adaptive Card payload that landed in the channel.
-- **Act 3b (Voice Live)** — click **🔊 Speak status**. The *Voice Live updates*
+- **Act 3b (Foundry Voice Agent Preview)** — click **🔊 Speak status**. The *Voice updates*
   pane shows the SSML utterance the on-call operator would hear, with the
   voice and severity styling that matches the incident. When
-  `AZURE_VOICE_LIVE_ENDPOINT` (+ `AZURE_VOICE_LIVE_API_KEY`) is configured,
-  the browser also opens a one-shot Voice Live realtime session and **plays
-  the audio through your speakers** — no extra service needed. `azd up`
-  provisions an Azure AI Services (Speech) account and wires both values
-  automatically (key stored in Key Vault, exposed to the App Service via a
-  `@Microsoft.KeyVault(...)` reference). Set `PROVISION_VOICE_LIVE=false`
-  before `azd up` to bring your own.
-- **Act 3c (Talk to agent)** — set `AZURE_VOICE_LIVE_AGENT_ID` to a published
-  Foundry agent and click **🎙️ Talk to agent**. The browser captures your
-  microphone, streams PCM16/24 kHz audio over the Voice Live realtime WS
-  (proxied via `/ws/voice` so the API key stays server-side), and plays the
-  agent's spoken reply back. Click **🛑 Stop talking** to end the session.
+  `AZURE_VOICE_AGENT_NAME` is configured after publishing a distinct
+  `kind: voice` agent, the browser opens a Foundry realtime voice session
+  and **plays the spoken update**. Otherwise browser speech synthesis
+  supplies an offline fallback.
+- **Act 3c (Talk to agent)** — publish the separate Foundry Voice Agent
+  Preview and click **🎙️ Talk to agent**. The browser captures your microphone,
+  streams PCM16/24 kHz audio through `/ws/voice` to the Foundry project
+  voice-agent protocol, and plays the reply. Entra authentication stays
+  server-side. Click **🛑 Stop talking** to end the session. This preview
+  does not have a production SLA.
 - **Act 4 (optimiser)** — click **Run optimiser**. The middle column shows
   the average score, per-criterion bars, and improvement suggestions.
 - **Act 5 (autonomy)** — toggle **Start simulation**. New incidents stream
   in every 10 s with no further input. Toggle off to stop.
 - **Act 5a (Copilot SDK, slide 4)** — drop to a terminal and type
   `python -m fibreops.demo chat "status"`. Same orchestrator, addressed via
-  the `FibreOpsCopilotClient` (`create_session` / `send_and_wait` — the
-  `@github/copilot-sdk` shape) returning a deterministic JSON envelope.
+  the in-process `FibreOpsCopilotClient` adapter (`create_session` /
+  `send_and_wait` — inspired by `@github/copilot-sdk`, not the SDK itself)
+  returning a deterministic JSON envelope.
 - **Act 5b (M365 publishing, slide 13)** — run
   `python -m fibreops.demo publish-m365`. The CLI emits a sideload-ready
   `fibreops-copilot.zip` with a declarative agent + action plugin + Teams
-  manifest. Point at the warning when `M365_ACTION_BASE_URL` is unset —
-  that's the only env var operators have to fill to flip from demo to
-  production.
+  manifest. Point at the warning when `M365_ACTION_BASE_URL` is unset;
+  publishing a package is not the same as configuring and validating a
+  production integration.
 
 The UI reads the same `state/*.jsonl` files the CLI demo writes to, so you
 can flip between terminal and browser freely and they always agree.
@@ -325,8 +330,7 @@ can flip between terminal and browser freely and they always agree.
 | NetOps coordinator    | Optional Foundry **Routine** (`FIBREOPS_NETOPS_ROUTINE=1`) | Hosted Routine (when SDK exposes it) |
 | Function tools        | Real Python in-process | Identical                                      |
 | Ticketing             | FastAPI mock D365      | Dataverse v9.2 (change `D365_MOCK_BASE_URL`)   |
-| Teams                 | **Real webhook**       | Identical                                      |
-| Voice                 | SSML outbox (`state/voice_outbox.jsonl`) | **Azure AI Voice Live** (`AZURE_VOICE_LIVE_ENDPOINT`) |
+| Teams                 | Configured webhook or local outbox | Verify delivery and operational permissions |
+| Voice                 | SSML outbox (`state/voice_outbox.jsonl`) | **Foundry Voice Agent Preview** (`AZURE_VOICE_AGENT_NAME`) |
 | Evaluation            | Local rubric + JSONL   | + Foundry Evals (`FoundryEvals` is in the SDK) |
 | Tracing               | OpenTelemetry → Application Insights | Identical                                |
-

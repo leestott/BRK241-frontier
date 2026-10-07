@@ -299,7 +299,7 @@ def main() -> Path:
     # CLIENT
     n1 = node(d, 140, 360, ic_user, AZURE, 1, "NOC Operator / Foundry Playground")
     # APPLICATION LAYER
-    n2 = node(d, 415, 280, ic_server, AZURE, 2, "NOC Console — FastAPI + HTMX · Demo CLI")
+    n2 = node(d, 415, 280, ic_server, AZURE, 2, "NOC Console — FastAPI + HTMX + voice proxy")
     n3 = node(d, 415, 470, ic_event, AZURE, 3, "Telemetry ingest — Event Hub · generator")
     # AGENT lane — top pipeline row
     n4 = node(d, 690, 250, ic_robot, PURPLE, 4, "IncidentAnalysisAgent")
@@ -308,11 +308,11 @@ def main() -> Path:
     n7 = node(d, 1150, 250, ic_gear, TEAL, 7, "Integration tools (FunctionTool)")
     # AGENT lane — bottom knowledge row
     n8 = node(d, 720, 560, ic_book, TEAL, 8, "Knowledge — SOPs + topology")
-    n9 = node(d, 920, 560, ic_search, TEAL, 9, "Web IQ / Work IQ search")
+    n9 = node(d, 920, 560, ic_search, TEAL, 9, "Foundry IQ knowledge base")
     # EXTERNAL SERVICES
     n10 = node(d, 1450, 210, ic_teams, AZURE, 10, "Microsoft Teams (Adaptive Cards)")
     n11 = node(d, 1450, 370, ic_dynamics, GREEN, 11, "D365 Field Service (mock)")
-    n12 = node(d, 1450, 530, ic_speaker, PURPLE, 12, "Azure AI Voice Live")
+    n12 = node(d, 1450, 530, ic_speaker, PURPLE, 12, "Foundry Voice Agent (Preview)")
     n13 = node(d, 1450, 680, ic_foundry, AZURE_DK, 13, "Microsoft Foundry Agent Service")
 
     def L(n):  # left-center
@@ -338,16 +338,16 @@ def main() -> Path:
     flow(d, R(n6), L(n7), PURPLE)
     # agents <-> knowledge/search tools
     flow(d, (676, 366), T(n8), TEAL, label="SOP lookup", loff=(-2, 0))
-    flow(d, (706, 366), T(n9), TEAL, label="Web/Work IQ", loff=(40, 0))
+    flow(d, (706, 366), T(n9), TEAL, label="Foundry IQ", loff=(40, 0))
     # integration tools -> external services
     flow(d, R(n7), L(n10), AZURE, dashed=True, label="notice / update", loff=(0, -16))
     flow(d, R(n7), L(n11), GREEN, dashed=True, label="ticket / booking", loff=(0, -14))
-    flow(d, R(n7), L(n12), PURPLE, dashed=True, label="SSML speech", loff=(0, 8))
+    flow(d, R(n7), L(n12), PURPLE, dashed=True, label="status via UI", loff=(0, 8))
     # Foundry hosts the agents
     flow(d, L(n13), (cont[2], cont[3] - 30), AZURE_DK, dashed=True,
          label="hosts Prompt Agents", loff=(0, 16))
     # Work IQ remote connection (external data)
-    flow(d, B(n9), (1280, 760), TEAL, dashed=True, label="Microsoft 365 / web", loff=(0, -16))
+    flow(d, R(n9), (1280, 760), TEAL, dashed=True, label="Azure AI Search", loff=(0, -16))
 
     # ============ BOTTOM BAND ============================================
     band_y = 800
@@ -376,7 +376,7 @@ def main() -> Path:
         (ic_search, "Application\nInsights"),
         (ic_teams, "Microsoft\nTeams"),
         (ic_dynamics, "Dynamics 365\nField Service"),
-        (ic_speaker, "Azure AI\nVoice Live"),
+        (ic_speaker, "Foundry\nVoice Agent"),
     ]
     cx0, step = 440, 100
     for i, (icon, lbl) in enumerate(comps):

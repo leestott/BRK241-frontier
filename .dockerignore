@@ -13,7 +13,6 @@ dist/
 .env
 .env.*
 state/
-!state/foundry_agents.json
 .azure/
 
 # Editor / OS noise
@@ -38,3 +37,4 @@ LICENSE
 # Infra (the image itself doesn't deploy infra)
 infra/
 azure.yaml
+.venv-voice/

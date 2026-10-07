@@ -15,13 +15,15 @@ The Foundry hosted-agent flow has two phases:
      Python **implementations** — so the same in-process tools (Teams, D365,
      dispatch, knowledge, memory) execute exactly as they do in local mode.
 
-We persist a registry of ``{role: {agent_name, version}}`` to
-``state/foundry_agents.json`` so subsequent demo runs auto-detect that hosted
-agents exist and bind to them.
+Locally we persist a registry of ``{role: {agent_name, version}}`` to
+``state/foundry_agents.json``. In App Service, the postdeploy hook supplies the
+same registry through ``FIBREOPS_PUBLISHED_AGENTS`` rather than baking
+environment-specific versions into the container image.
 """
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -132,7 +134,7 @@ def _build_definition(role: str):
         mcp_endpoint = (
             f"{settings.foundry_iq_search_endpoint.rstrip('/')}"
             f"/knowledgebases/{settings.foundry_iq_knowledge_base}"
-            f"/mcp?api-version=2026-05-01-preview"
+            f"/mcp?api-version=2026-08-01-preview"
         )
         tools = [
             MCPTool(
@@ -173,6 +175,20 @@ def _project_client():
 
 
 def load_registry() -> dict[str, dict[str, str]]:
+    published = os.environ.get("FIBREOPS_PUBLISHED_AGENTS")
+    if published is not None:
+        try:
+            registry = json.loads(published)
+        except json.JSONDecodeError as exc:
+            raise ValueError("FIBREOPS_PUBLISHED_AGENTS must be valid JSON") from exc
+        if not isinstance(registry, dict) or any(
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("agent_name"), str)
+            or not isinstance(entry.get("version"), str)
+            for entry in registry.values()
+        ):
+            raise ValueError("FIBREOPS_PUBLISHED_AGENTS must map roles to agent_name/version strings")
+        return registry
     if HOSTED_AGENT_REGISTRY.exists():
         try:
             return json.loads(HOSTED_AGENT_REGISTRY.read_text(encoding="utf-8"))

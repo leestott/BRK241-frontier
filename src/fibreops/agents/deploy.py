@@ -1,6 +1,6 @@
 """Deploy the FibreOps **hosted agent** to Foundry Agent Service (V1Preview).
 
-This mirrors ``agent.yaml`` programmatically via the ``azure-ai-projects`` 2.1.0
+This mirrors ``agent.yaml`` programmatically via the ``azure-ai-projects`` 2.6
 SDK: it registers the container image as an immutable hosted-agent *version*,
 which triggers Foundry to provision a per-session sandbox and a dedicated Entra
 agent identity. See
@@ -46,7 +46,7 @@ def _project_client() -> Any:
 def build_hosted_definition(image: str) -> Any:
     """Build the V1Preview :class:`HostedAgentDefinition` for the image."""
     from azure.ai.projects.models import (
-        AgentProtocol,
+        AgentEndpointProtocol,
         ContainerConfiguration,
         HostedAgentDefinition,
         ProtocolVersionRecord,
@@ -55,13 +55,16 @@ def build_hosted_definition(image: str) -> Any:
     settings = get_settings()
     return HostedAgentDefinition(
         protocol_versions=[
-            ProtocolVersionRecord(protocol=AgentProtocol.RESPONSES, version="1.0.0")
+            ProtocolVersionRecord(
+                protocol=AgentEndpointProtocol.RESPONSES,
+                version="2.0.0",
+            )
         ],
         cpu=settings.hosted_agent_cpu,
         memory=settings.hosted_agent_memory,
         container_configuration=ContainerConfiguration(image=image),
         environment_variables={
-            "MODEL_DEPLOYMENT_NAME": settings.azure_ai_model_deployment,
+            "AZURE_AI_MODEL_DEPLOYMENT_NAME": settings.azure_ai_model_deployment,
             "FIBREOPS_FOUNDRY_IQ": "true",
         },
     )
