@@ -35,8 +35,6 @@ from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import (
     KnowledgeBase,
-    KnowledgeRetrievalMinimalReasoningEffort,
-    KnowledgeRetrievalOutputMode,
     KnowledgeSourceReference,
     SearchableField,
     SearchIndex,
@@ -49,6 +47,7 @@ from azure.search.documents.indexes.models import (
     SimpleField,
     SearchFieldDataType,
 )
+from azure.search.documents.knowledgebases.models import KnowledgeRetrievalMinimalReasoningEffort
 
 INDEX_NAME = "fibreops-knowledge"
 SEMANTIC_CONFIG = "fibreops-semantic"
@@ -159,7 +158,7 @@ def main() -> int:
         description="FibreOps NOC knowledge base for agentic retrieval.",
         knowledge_sources=[KnowledgeSourceReference(name=KNOWLEDGE_SOURCE)],
         retrieval_reasoning_effort=KnowledgeRetrievalMinimalReasoningEffort(),
-        output_mode=KnowledgeRetrievalOutputMode.EXTRACTIVE_DATA,
+        output_mode="extractiveData",
     )
     index_client.create_or_update_knowledge_base(knowledge_base)
 

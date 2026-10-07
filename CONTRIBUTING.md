@@ -51,7 +51,7 @@ deterministic `LocalAgent` fallback:
 - Changes that require new managed services to make the demo work
 - Changes that remove the local-agent fallback
 - Changes that bake in tenant-specific configuration
-- Anything that adds a dependency on a non-public preview SDK without a fallback
+- Preview SDK dependencies without an isolated installation and an offline fallback
 
 ## Trademarks
 

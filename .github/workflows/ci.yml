@@ -23,6 +23,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Keep deployment settings out of Git
+        shell: pwsh
+        run: |
+          $privatePaths = @(git ls-files | Where-Object {
+            $_ -match '(^|/)\.azure/' -or
+            ($_ -match '(^|/)\.env(\.|$)' -and $_ -ne '.env.example') -or
+            $_ -match '^state/'
+          })
+          if ($privatePaths.Count -gt 0) {
+            throw "Private deployment settings are tracked: $($privatePaths -join ', ')"
+          }
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v7
         with:
@@ -44,3 +56,10 @@ jobs:
           FIBREOPS_AGENT_BACKEND: local
         run: |
           python -m pytest -q --maxfail=1
+
+      - name: Verify deployable wheel includes voice agent definition
+        shell: pwsh
+        run: |
+          python -m pip wheel --no-deps --wheel-dir $env:RUNNER_TEMP .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -c "import glob, os, zipfile; wheels = glob.glob(os.path.join(os.environ['RUNNER_TEMP'], 'fibreops-*.whl')); assert len(wheels) == 1; z = zipfile.ZipFile(wheels[0]); assert 'fibreops/voice_live/definition.json' in z.namelist()"
