@@ -296,7 +296,7 @@ def _make_foundry_agent(
     context_providers: list[Any] | None = None,
 ):
     from agent_framework import Agent
-    from agent_framework_foundry import FoundryChatClient
+    from agent_framework.foundry import FoundryChatClient
     from azure.identity import DefaultAzureCredential
 
     settings = get_settings()
@@ -314,6 +314,7 @@ def _make_foundry_agent(
         name=name,
         tools=tools,
         context_providers=context_providers or None,
+        default_options={"store": False},
     )
 
 
@@ -325,7 +326,7 @@ def _make_hosted_agent(
     context_providers: list[Any] | None = None,
 ):
     """Connect to a Foundry-hosted Prompt Agent published by the publisher."""
-    from agent_framework_foundry import FoundryAgent
+    from agent_framework.foundry import FoundryAgent
     from azure.identity import DefaultAzureCredential
 
     settings = get_settings()

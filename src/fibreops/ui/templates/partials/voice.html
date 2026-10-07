@@ -1,5 +1,5 @@
 {% if not utterances %}
-  <p class="text-slate-500 text-sm">No voice updates yet. Click <span class="font-mono">🔊 Speak status</span> in the header to push the latest incident through Voice Live.</p>
+  <p class="text-slate-300 text-sm">No voice updates yet. Click <span class="font-mono">🔊 Speak status</span> to prepare an update for the latest incident.</p>
 {% else %}
   <ul class="space-y-2"
       data-latest-text="{{ utterances[0].text|e }}"

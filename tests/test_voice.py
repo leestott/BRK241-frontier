@@ -1,8 +1,6 @@
-"""Voice Live integration tests.
+"""Foundry voice-agent announcement tests.
 
-Covers the local outbox path (default) plus the configured webhook path with
-a stubbed httpx client, the orchestrator opt-in flag, and the UI action that
-speaks for the latest incident.
+Covers the local outbox, orchestrator opt-in and UI announcement.
 """
 from __future__ import annotations
 
@@ -14,7 +12,6 @@ from fastapi.testclient import TestClient
 
 import fibreops.ui.app as ui_module
 from fibreops.tools import speak_status_update
-from fibreops.tools import voice as voice_module
 
 
 def _voice_path(state: Path) -> Path:
@@ -43,7 +40,7 @@ def test_speak_status_update_writes_to_outbox_by_default(chdir_state_tmp: Path) 
     assert "8,200" in payload["text"]
     # SSML envelope is well-formed and uses a critical voice.
     assert payload["ssml"].startswith("<speak")
-    assert "en-GB-RyanNeural" in payload["voice"] or payload["voice"].startswith("en-GB-")
+    assert payload["voice"] == "en-GB-OllieMultilingualNeural"
     assert "<mstts:express-as" in payload["ssml"]
     assert out["delivery"]["status"] == "logged-locally"
 
@@ -66,41 +63,14 @@ def test_speak_status_update_unknown_phrase_raises(chdir_state_tmp: Path) -> Non
         speak_status_update(incident_id="INC-X", phrase="not_a_real_phrase")
 
 
-def test_speak_status_update_uses_configured_endpoint(
+def test_speak_status_update_uses_outbox_even_with_voice_agent(
     chdir_state_tmp: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("AZURE_VOICE_LIVE_ENDPOINT", "https://voice.example.com/synthesize")
-    monkeypatch.setenv("AZURE_VOICE_LIVE_API_KEY", "abc123")
-    monkeypatch.setenv("AZURE_VOICE_LIVE_VOICE", "en-GB-SoniaNeural")
+    monkeypatch.setenv("AZURE_VOICE_AGENT_NAME", "fibreops-noc-voice")
+    monkeypatch.setenv("AZURE_VOICE_AGENT_VOICE", "en-GB-SoniaNeural")
     from fibreops import config
 
     config.get_settings.cache_clear()
-
-    captured: dict[str, object] = {}
-
-    class _FakeResp:
-        status_code = 202
-
-        def raise_for_status(self) -> None:
-            return None
-
-    class _FakeClient:
-        def __init__(self, *_, **__):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_):
-            return False
-
-        def post(self, url, json, headers):  # noqa: A002 - mirror httpx API
-            captured["url"] = url
-            captured["json"] = json
-            captured["headers"] = headers
-            return _FakeResp()
-
-    monkeypatch.setattr(voice_module.httpx, "Client", _FakeClient)
 
     out = speak_status_update(
         incident_id="INC-009",
@@ -112,15 +82,9 @@ def test_speak_status_update_uses_configured_endpoint(
         probable_cause="splice degradation",
     )
 
-    assert captured["url"] == "https://voice.example.com/synthesize"
-    assert captured["headers"]["Ocp-Apim-Subscription-Key"] == "abc123"
-    sent = captured["json"]
-    assert sent["voice"] == "en-GB-SoniaNeural"
-    assert sent["incident_id"] == "INC-009"
-    assert out["delivery"]["status"] == "sent"
-    # The outbox is always written (the UI reads data-latest-text from it) in
-    # addition to the server-side POST when an endpoint is configured.
-    assert _voice_path(chdir_state_tmp / "state").exists()
+    assert out["voice"] == "en-GB-SoniaNeural"
+    assert out["delivery"]["status"] == "logged-locally"
+    assert len(_voice_path(chdir_state_tmp / "state").read_text(encoding="utf-8").splitlines()) == 1
 
 
 def test_local_agent_emits_voice_when_enabled(
@@ -280,6 +244,67 @@ def test_voice_partial_renders_outbox(client: TestClient, chdir_state_tmp: Path)
     assert "Heads up team" in r.text
 
 
+def test_voice_partial_tolerates_incomplete_and_invalid_records(
+    client: TestClient, chdir_state_tmp: Path
+) -> None:
+    valid = {
+        "ts": "2026-06-13T10:01:02+00:00",
+        "incident_id": "INC-VALID",
+        "phrase": "outage_detected",
+        "voice": "en-GB-RyanNeural",
+        "text": "Service update",
+        "severity": "critical",
+    }
+    voice = _voice_path(chdir_state_tmp / "state")
+    voice.write_text(
+        json.dumps(valid) + "\n"
+        + json.dumps({**valid, "ts": None, "incident_id": "INC-BAD"}) + "\n"
+        + '{"ts": "unfinished',
+        encoding="utf-8",
+    )
+    r = client.get("/partials/voice")
+    assert r.status_code == 200
+    assert "INC-VALID" in r.text
+    assert "INC-BAD" not in r.text
+    assert "Some voice updates could not be loaded" in r.text
+
+    voice.write_text(json.dumps(valid) + "\n", encoding="utf-8")
+    recovered = client.get("/partials/voice")
+    assert recovered.status_code == 200
+    assert "INC-VALID" in recovered.text
+    assert "Some voice updates could not be loaded" not in recovered.text
+
+
+def test_voice_partial_survives_outbox_deleted_between_check_and_read(
+    client: TestClient, chdir_state_tmp: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _voice_path(chdir_state_tmp / "state").write_text("{}\n", encoding="utf-8")
+    original_read_text = Path.read_text
+
+    def interrupted_read(path: Path, *args: object, **kwargs: object) -> str:
+        if path == ui_module.VOICE_OUTBOX:
+            raise FileNotFoundError(path)
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", interrupted_read)
+    r = client.get("/partials/voice")
+    assert r.status_code == 200
+    assert "No voice updates yet" in r.text
+
+
+def test_voice_partial_reports_outbox_io_failure(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failed_read(path: Path, *args: object, **kwargs: object) -> str:
+        raise PermissionError("sensitive storage path")
+
+    monkeypatch.setattr(Path, "read_text", failed_read)
+    r = client.get("/partials/voice")
+    assert r.status_code == 503
+    assert "Voice updates are temporarily unavailable" in r.text
+    assert "sensitive storage path" not in r.text
+
+
 def test_action_voice_dispatched_phrase(client: TestClient, chdir_state_tmp: Path) -> None:
     _write_run_for_ui(chdir_state_tmp / "state", dispatched=True)
     r = client.post("/actions/voice")
@@ -289,6 +314,17 @@ def test_action_voice_dispatched_phrase(client: TestClient, chdir_state_tmp: Pat
     assert payload["phrase"] == "engineer_dispatched"
     assert "Priya Shah" in payload["text"]
     assert "22" in payload["text"]
+
+
+def test_action_voice_skips_incomplete_outbox_record(
+    client: TestClient, chdir_state_tmp: Path
+) -> None:
+    _write_run_for_ui(chdir_state_tmp / "state", dispatched=True)
+    _voice_path(chdir_state_tmp / "state").write_text('{"ts": "unfinished\n', encoding="utf-8")
+    r = client.post("/actions/voice")
+    assert r.status_code == 200
+    assert "INC-UI-1" in r.text
+    assert "Some voice updates could not be loaded" in r.text
 
 
 def test_action_voice_outage_phrase_when_not_dispatched(
