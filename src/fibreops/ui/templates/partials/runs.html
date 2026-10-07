@@ -22,7 +22,7 @@
                   title="{{ run.started_at or '' }}">{{ run.started_at[11:16] ~ ' UTC' if run.started_at else '' }}</time>
           </div>
           <div class="text-xs text-slate-400 mt-0.5 truncate">
-            {{ run.signal_type or '?' }} · {{ run.region or '?' }} · {{ '{:,}'.format(run.customers_served) }} customers
+            {{ run.signal_type or '?' }} · {{ run.region or '?' }} · {{ '{:,}'.format(run.customers_served) ~ ' customers' if run.customers_served is not none else 'Customer count unknown' }}
           </div>
           {% if run.summary %}
             <div class="card-summary" title="{{ run.summary }}">{{ run.summary }}</div>

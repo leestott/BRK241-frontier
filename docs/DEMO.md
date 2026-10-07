@@ -2,13 +2,23 @@
 
 > **Stage time:** 8 minutes ± 30s
 > **Audience eye-line:** one terminal (left), one Teams channel (right), one Foundry portal tab (background, only opened during Act 5)
-> **Failure budget:** 1 act may go wrong; you have a deterministic fallback for every dependency
+> **Failure budget:** rehearse the local workflow as a fallback; it does not replace or verify cloud integrations
+
+Use the [reproduction and deployed-release guide](REPRODUCING.md) before rehearsal.
+The deployed console remains on canonical voice **v4** and the earlier app image;
+the incident candidate **v3** and new structured-facts UI are separate experiments,
+not an implicit upgrade. No native-speaker listener is available for this run:
+describe pronunciation as **not verified**, even when automated gates pass.
+The audited deployed console uses **Teams outbox** and **IQ fixtures**. The
+optional live-channel narration below applies only after separately configuring
+and verifying those integrations.
 
 ---
 
 ## 0. Pre-flight (T-15 minutes, off-stage)
 
-Run these once before walking on stage. Each line is copy-paste-safe.
+Run these once before walking on stage. Replace placeholders and review the
+publication, notification and local state-reset steps before executing them.
 
 ```powershell
 # Confirm the installed SDKs are present
@@ -22,7 +32,7 @@ cd <path-to-this-repo>
 #    EVENT_HUB_FQDN=<ns>.servicebus.windows.net
 #    EVENT_HUB_NAME=fibre-signals
 #    APPLICATIONINSIGHTS_CONNECTION_STRING=...
-Copy-Item .env.example .env  # if not yet present, then edit
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 az login
 
 # 3) Publish the three hosted Prompt Agents to Foundry (one-time, ~30s)
@@ -65,7 +75,7 @@ Remove-Item state\runs.jsonl, state\traces.jsonl, state\teams_outbox.jsonl, `
 
 **Type:**
 ```powershell
-type src\fibreops\telemetry\generator.py | Select-Object -First 25
+Get-Content src\fibreops\telemetry\generator.py | Select-Object -First 25
 ```
 
 **Point out:**
@@ -98,7 +108,7 @@ Show that **Resolved backend: hosted** — agents are in Foundry, not in this Py
 
 ## Act 3 — "Watch it think" *(2 minutes)*
 
-**Goal:** the headline moment. One command, real Azure, end-to-end.
+**Goal:** show the workflow and distinguish hosted inference from mocked tools.
 
 **On screen:** terminal full-screen.
 
@@ -117,10 +127,11 @@ Show that **Resolved backend: hosted** — agents are in Foundry, not in this Py
 | Configuration table                 | "Check the backend and each integration status before describing it as live; an unset webhook uses the local Teams outbox, and the signal generator is not Event Hubs." |
 | `Generated 3 telemetry signals`     | "Deterministic seeds so I can rehearse — in production this is the consumer group on the hub."                                                    |
 | 🧠 **IncidentAnalysisAgent**         | "Notice the structured analysis — summary, probable cause, customer impact and severity. Compare the output against the input rather than assuming a specific escalation." |
-| 🛰️ **NetOpsCoordinatorAgent**       | "Ticket `INC-XXXX` just appeared in D365 — let me show you" (pivot to Teams, see the **Adaptive Card** arrive in the channel)                     |
-| 🚐 **FieldDispatchAgent**           | "Engineer chosen by skill, region, and shift — no human in the loop. The card in Teams just updated with the ETA."                                |
+| 🛰️ **NetOpsCoordinatorAgent**       | "A ticket was created in the local D365-shaped mock. Here is the Adaptive Card payload; show the real channel only if delivery was verified." |
+| 🚐 **FieldDispatchAgent**           | "The demo selected an engineer from fixture data and recorded a mock booking. Compare the assignment and arrival estimate with the actual tool results." |
 
-**Pivot to Teams** during the first dispatch panel — the **Adaptive Card** should already be in the channel. Audience sees the loop close in their familiar tool.
+**Pivot to Teams** only when the configured webhook delivered the card.
+Otherwise show `python -m fibreops.demo card` and label it as an outbox preview.
 
 ---
 
@@ -130,11 +141,11 @@ Show that **Resolved backend: hosted** — agents are in Foundry, not in this Py
 
 **Type:**
 ```powershell
-Get-Content state\runs.jsonl | Select-Object -First 1 | ConvertFrom-Json | ConvertTo-Json -Depth 10 | more
+Get-Content state\runs.jsonl | Select-Object -First 1 | ConvertFrom-Json | ConvertTo-Json -Depth 10
 ```
 
 **Say:**
-> "Every run is a JSON document: the input signal, every agent step, every tool call, every output, every ticket. This is what we ship to Log Analytics and to the optimiser. It is also what Foundry Evals ingests — same shape."
+> "The local run record contains the signal, agent steps and tool results. The optimiser reads these records; Application Insights receives the configured telemetry spans. Voice evaluation uses a separate, explicitly mapped audio/transcript dataset, not this raw JSON unchanged."
 
 **Then:**
 ```powershell
@@ -208,7 +219,10 @@ $env:FIBREOPS_AGENT_BACKEND="local"
 .\.venv\Scripts\python.exe -m fibreops.demo --signals 1
 Remove-Item Env:FIBREOPS_AGENT_BACKEND
 ```
-The demo runs identically against the deterministic `LocalAgent`. Use this as your **on-stage safety net** if anything Azure-side wobbles.
+The local orchestrator and fixture tools remain available, but hosted inference
+and native Foundry voice are not demonstrated by this fallback. For a rehearsal
+without external actions, also clear the integration settings in the
+[isolated local setup](REPRODUCING.md#local-rehearsal).
 
 ---
 
@@ -250,7 +264,7 @@ KILL-SWITCH
 If anything Azure-side fails on stage:
    $env:FIBREOPS_AGENT_BACKEND="local"
    .\.venv\Scripts\python.exe -m fibreops.demo --signals 3
-Every act still works.
+The local workflow works; do not describe hosted inference, cloud voice or Teams delivery as verified.
 ```
 
 ---
@@ -272,9 +286,9 @@ Suggested narration overlay:
   Incident Analysis → NetOps Coordinator → Field Dispatch decision timeline
   with the SOP reference, ticket id, and engineer name.
 - **Act 2a (Foundry IQ, slide 9)** — point at the *Knowledge sources* panel.
-  The Incident Analysis agent grounded its reasoning with Web IQ (roadworks,
-  weather) and the **Foundry IQ knowledge base** (SOPs + node topology via
-  Azure AI Search agentic retrieval), cached in `state/iq_lookups.jsonl`. The
+  Inspect the lookup records before claiming live grounding. The audited app
+  uses fixtures; a configured **Foundry IQ knowledge base** can retrieve SOPs
+  and topology through Azure AI Search, cached in `state/iq_lookups.jsonl`. The
   `iq · fixtures` pill flips to `foundry-iq` the moment the knowledge base is
   configured (`FOUNDRY_IQ_SEARCH_ENDPOINT` + `FOUNDRY_IQ_KNOWLEDGE_BASE`), or a
   legacy `FOUNDRY_WEB_IQ_ENDPOINT` is set. Provision the knowledge base with
@@ -285,7 +299,8 @@ Suggested narration overlay:
   trace shape — narration line: *"the NetOps coordinator now runs the local
   routine implementation, the same three deterministic steps every time."*
 - **Act 3 (Teams)** — point at the *Teams card preview* pane (auto-polled
-  every 5 s) — the same Adaptive Card payload that landed in the channel.
+  every 5 s). This is the recorded Adaptive Card payload, not proof that it
+  landed in a channel.
 - **Act 3b (Foundry Voice Agent Preview)** — click **🔊 Speak status**. The *Voice updates*
   pane shows the recorded announcement text the on-call operator would hear, with the
   voice and severity styling that matches the incident. When
@@ -309,15 +324,16 @@ Suggested narration overlay:
 - **Recorded evaluation demo (2026-10-07)** — production `fibreops-noc-voice`
   version **4** contains the unchanged definition from candidate version **7**,
   using native `marin` speech. The temporary candidate agent was removed after
-  rollout; its v6 and v7 evaluation runs remain available for comparison.
+  rollout; its v6 and v7 evaluation runs remain available for historical comparison.
+  The newer `fibreops-noc-voice-incident-candidate` is a separate retained test agent.
   Both runs passed language selection, semantic accuracy, natural wording,
   transcription and coherence on all 32 replies. Fluency at 4/5 or above fell
   from **22/32 to 14/32** after the wording change: this is a measured regression,
-  not an improvement. The latest fluency pass counts are English **11/22**,
+  not an improvement. That historical run's fluency pass counts are English **11/22**,
   Polish **1/6**, and Arabic **2/4**. Show the failed rows and their explanations
   in Foundry rather than describing a completed run as a passed quality gate.
   This rollout has an explicit demo exception; native-speaker audio approval
-  remains outstanding. Version numbers are per agent, so production v4 and
+  is unavailable/not verified. Version numbers are per agent, so production v4 and
   candidate v7 identify the same tested definition, not different model ages.
 - **Architecture (optional)** — open [the documentation-only walkthrough](services-architecture.html).
   Play or step through the incident and voice/evaluation workflows. It sends no
@@ -338,8 +354,9 @@ Suggested narration overlay:
   publishing a package is not the same as configuring and validating a
   production integration.
 
-The UI reads the same `state/*.jsonl` files the CLI demo writes to, so you
-can flip between terminal and browser freely and they always agree.
+The UI and CLI share records only when they run against the same local
+`state/` directory. A locally run CLI does not populate the deployed App Service;
+its in-container demo state is separate and can be lost on restart.
 
 ---
 

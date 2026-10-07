@@ -27,6 +27,7 @@ def test_speak_status_update_writes_to_outbox_by_default(chdir_state_tmp: Path) 
         region="London",
         customers=8200,
         probable_cause="fibre cut",
+        signal_type="loss_of_light",
     )
     voice_file = _voice_path(chdir_state_tmp / "state")
     assert voice_file.exists()
@@ -38,6 +39,11 @@ def test_speak_status_update_writes_to_outbox_by_default(chdir_state_tmp: Path) 
     assert "FN-LDN-001" in payload["text"]
     assert "London" in payload["text"]
     assert "8,200" in payload["text"]
+    assert "Approximately" not in payload["text"]
+    assert "has not been confirmed" in payload["text"]
+    assert "loss of optical signal" in payload["text"]
+    assert payload["facts"]["potentially_affected_customers"] == 8200
+    assert payload["facts"]["customer_count_is_approximate"] is False
     assert payload["ssml"] is None
     assert payload["voice"] == "marin"
     assert out["delivery"]["status"] == "logged-locally"
@@ -54,6 +60,26 @@ def test_speak_status_update_dispatched_phrase(chdir_state_tmp: Path) -> None:
     assert "Priya Shah" in out["text"]
     assert "18" in out["text"]
     assert out["severity"] == "high"
+    assert out["facts"]["technician_arrival_eta_minutes"] == 18
+    assert out["facts"]["service_restoration_eta_minutes"] is None
+    assert "restoration time has not been confirmed" in out["text"]
+
+
+def test_unknown_announcement_values_are_not_zero_or_question_marks(chdir_state_tmp: Path) -> None:
+    outage = speak_status_update(incident_id="INC-UNKNOWN")
+    assert "not yet known" in outage["text"]
+    assert "?" not in outage["text"]
+    assert "None" not in outage["text"]
+    assert outage["facts"]["potentially_affected_customers"] is None
+    dispatched = speak_status_update(incident_id="INC-UNKNOWN", phrase="engineer_dispatched")
+    assert "arrival time is not yet available" in dispatched["text"]
+    assert "0 minutes" not in dispatched["text"]
+
+
+@pytest.mark.parametrize("kwargs", [{"customers": -1}, {"eta": -1}])
+def test_invalid_announcement_counts_raise(chdir_state_tmp: Path, kwargs) -> None:
+    with pytest.raises(ValueError):
+        speak_status_update(incident_id="INC-INVALID", **kwargs)
 
 
 def test_speak_status_update_unknown_phrase_raises(chdir_state_tmp: Path) -> None:

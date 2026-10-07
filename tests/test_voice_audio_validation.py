@@ -5,7 +5,7 @@ import wave
 
 import pytest
 
-from scripts.validate_voice_audio import CASES, audio_metrics, judge, write_wav
+from scripts.validate_voice_audio import CASES, audio_metrics, join_transcript_segments, judge, write_wav
 
 
 @pytest.mark.parametrize("pcm", [b"", b"\x00"])
@@ -41,6 +41,9 @@ async def test_judge_fails_closed_on_bad_or_incomplete_assessments(assessment, r
 
     class Client:
         async def post(self, *args, **kwargs):
+            rubric = kwargs["json"]["messages"][0]["content"]
+            assert "Recommending escalation is not executing escalation" in rubric
+            assert "negated actions, not claims that messages were sent" in rubric
             return Response()
 
     if raises:
@@ -49,3 +52,10 @@ async def test_judge_fails_closed_on_bad_or_incomplete_assessments(assessment, r
     else:
         result = await judge(Client(), "https://example.test", "fake", "test-model", CASES[0], "input", "output")
         assert result["passed"] is passed
+
+
+def test_transcript_boundaries_preserve_words_without_guessing_punctuation():
+    assert join_transcript_segments(["Sprawdzę.", "Stan ", "لم يتأكد."]) == "Sprawdzę.\nStan\nلم يتأكد."
+    for segments in ([], [""], ["   "], ["text", None]):
+        with pytest.raises(ValueError, match="transcript segments"):
+            join_transcript_segments(segments)

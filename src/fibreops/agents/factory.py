@@ -174,12 +174,13 @@ class LocalAgent:
                     phrase="outage_detected",
                     severity=analysis["severity"],
                     node_id=p["node_id"],
-                    region=p.get("region", "?"),
-                    customers=p.get("customers_served", 0),
+                    region=p.get("region"),
+                    customers=p.get("customers_served"),
                     probable_cause=analysis["probable_cause"],
+                    signal_type=p.get("signal_type"),
                 )
             except Exception:  # pragma: no cover - voice is best-effort
-                pass
+                logger.exception("Unable to record incident voice announcement")
         decision = "HANDOFF:DISPATCH" if analysis["severity"] in ("high", "critical") else "MONITOR"
         reason = "auto-dispatch threshold met" if decision.startswith("HANDOFF") else "below dispatch threshold"
         return LocalAgentResponse(
@@ -228,7 +229,7 @@ class LocalAgent:
                     eta=result["eta_minutes"],
                 )
             except Exception:  # pragma: no cover - voice is best-effort
-                pass
+                logger.exception("Unable to record dispatch voice announcement")
         return LocalAgentResponse(
             text=f"DISPATCHED {result['engineer_name']} ETA {result['eta_minutes']} min",
             metadata={"dispatch": result},

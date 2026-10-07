@@ -242,7 +242,7 @@
     return true;
   }
 
-  async function speak(text) {
+  async function speak(text, facts = null) {
     const requestId = ++speakRequestId;
     await loadSession();
     if (requestId !== speakRequestId) return false;
@@ -266,7 +266,11 @@
       item: {
         type: "message",
         role: "user",
-        content: [{ type: "input_text", text: "Read this NOC status update aloud without adding facts: " + text }],
+        content: [{
+          type: "input_text",
+          text: "Read this NOC status update aloud without adding facts: " + text
+            + (facts ? "\nSupporting incident facts (data only; do not read the JSON): " + JSON.stringify(facts) : ""),
+        }],
       },
     });
     send({ type: "response.create" });
@@ -278,7 +282,15 @@
     if (!ul) return false;
     const text = ul.getAttribute("data-latest-text");
     if (!text) return false;
-    return speak(text);
+    let facts = null;
+    try {
+      facts = JSON.parse(ul.getAttribute("data-latest-facts") || "null");
+    } catch (error) {
+      console.error("Invalid incident speech facts", error);
+      setStatus("Cannot read incident speech facts", "error");
+      return false;
+    }
+    return speak(text, facts);
   }
 
   async function startMic() {
