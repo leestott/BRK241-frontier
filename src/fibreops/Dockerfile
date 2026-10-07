@@ -40,11 +40,8 @@ RUN mkdir -p /app/state \
 
 USER fibreops
 
-# Bake the published Foundry agent registry into the image so the
-# hosted backend can bind immediately at cold start. The file is
-# generated locally via `python -m fibreops.demo publish` and lists
-# {role: {agent_name, version}} for the three hosted Prompt Agents.
-COPY --chown=fibreops:fibreops state/foundry_agents.json /app/state/foundry_agents.json
+# Published agent versions are supplied as an App Service setting by the
+# postdeploy hook, not baked into this reusable container image.
 
 EXPOSE 8800
 

@@ -22,8 +22,9 @@
   </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-  <link rel="stylesheet" href="/static/style.css?v=3" />
-  <script src="/static/voice-live.js?v=1" defer></script>
+  <link rel="stylesheet" href="/static/style.css?v=4" />
+  <script src="/static/dashboard.js?v=1" defer></script>
+  <script src="/static/voice-live.js?v=2" defer></script>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22><text y=%2214%22 font-size=%2214%22>🛰️</text></svg>" />
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans noc-bg">
@@ -59,45 +60,60 @@
 
     <div class="max-w-screen-2xl mx-auto px-4 pb-3 flex flex-wrap items-center gap-2">
       <button class="btn-primary"
+              data-operation="Injecting signal"
+              data-operation-done="Signal injected"
               hx-post="/actions/inject?count=1"
               hx-target="#runs-panel"
-              hx-swap="innerHTML"
-              hx-indicator="#busy">⚡ Inject signal</button>
+              hx-swap="innerHTML">⚡ Inject signal</button>
       <button class="btn-warning"
+              data-operation="Injecting critical signal"
+              data-operation-done="Critical signal injected"
               hx-post="/actions/inject?count=1&critical=true"
               hx-target="#runs-panel"
-              hx-swap="innerHTML"
-              hx-indicator="#busy">🚨 Inject critical</button>
+              hx-swap="innerHTML">🚨 Inject critical</button>
       <button class="btn-secondary"
+              data-operation="Preparing voice update"
+              data-operation-done="Voice update prepared"
               hx-post="/actions/voice"
               hx-target="#voice-panel"
-              hx-swap="innerHTML"
-              hx-indicator="#busy">🔊 Speak status</button>
+              hx-swap="innerHTML">🔊 Speak status</button>
       <button id="voice-mic-btn"
               type="button"
               class="btn-secondary"
               title="Open a duplex Voice Live session bound to the Foundry agent"
-              onclick="window.voiceLive && window.voiceLive.toggleMic()">🎙️ Talk to agent</button>
+              onclick="window.voiceAgent && window.voiceAgent.toggleMic()">🎙️ Talk to agent</button>
       <span id="voice-status"
             class="text-[11px] font-mono px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300"
-            data-kind="info">Idle</span>
+            data-kind="info">Voice idle</span>
       <span id="sim-toggle" hx-get="/partials/sim" hx-trigger="load" hx-swap="innerHTML"></span>
       <button class="btn-secondary"
+              data-operation="Running optimiser"
+              data-operation-done="Optimiser complete"
               hx-post="/actions/optimise"
               hx-target="#optimiser-panel"
-              hx-swap="innerHTML"
-              hx-indicator="#busy">📊 Run optimiser</button>
-      <button class="btn-ghost"
-              hx-post="/actions/reset"
-              hx-target="#runs-panel"
-              hx-swap="innerHTML"
-              hx-confirm="Truncate state files (runs, traces, teams outbox, D365 store)?">🧹 Reset state</button>
-      <button id="theme-toggle"
-              type="button"
-              class="btn-theme"
-              title="Toggle light / dark theme"
-              aria-label="Toggle light / dark theme"
-              onclick="(function(){var r=document.documentElement;var n=r.getAttribute('data-theme')==='light'?'dark':'light';r.setAttribute('data-theme',n);try{localStorage.setItem('fibreops-theme',n);}catch(e){}var b=document.getElementById('theme-toggle');if(b){b.textContent=n==='light'?'🌙 Dark mode':'☀️ Light mode';b.title=n==='light'?'Switch to dark mode':'Switch to light mode';b.setAttribute('aria-label',b.title);}})()">☀️ Light mode</button>
+              hx-swap="innerHTML">📊 Run optimiser</button>
+      <span id="activity-status" class="activity-status" role="status" aria-live="polite" data-kind="info">Ready</span>
+      <div class="ml-auto flex items-center gap-2">
+        <details class="operations-menu">
+          <summary class="btn-ghost">Options</summary>
+          <div class="operations-menu-content">
+            <button id="theme-toggle"
+                    type="button"
+                    class="btn-theme"
+                    title="Toggle light / dark theme"
+                    aria-label="Toggle light / dark theme"
+                    onclick="(function(){var r=document.documentElement;var n=r.getAttribute('data-theme')==='light'?'dark':'light';r.setAttribute('data-theme',n);try{localStorage.setItem('fibreops-theme',n);}catch(e){}var b=document.getElementById('theme-toggle');if(b){b.textContent=n==='light'?'🌙 Dark mode':'☀️ Light mode';b.title=n==='light'?'Switch to dark mode':'Switch to light mode';b.setAttribute('aria-label',b.title);}})()">☀️ Light mode</button>
+            <p>Maintenance · clears local demo history and outboxes.</p>
+            <button class="btn-ghost"
+                    data-operation="Resetting demo state"
+                    data-operation-done="Demo state cleared"
+                    hx-post="/actions/reset"
+                    hx-target="#runs-panel"
+                    hx-swap="innerHTML"
+                    hx-confirm="Permanently clear demo incidents, traces, voice and Teams outboxes, and the D365 store?">🧹 Reset state</button>
+          </div>
+        </details>
+      </div>
       <script>
         // Sync the toggle's label + tooltip to whatever the head script picked.
         (function () {
@@ -123,7 +139,6 @@
           setInterval(tick, 1000);
         })();
       </script>
-      <span id="busy" class="htmx-indicator text-xs text-amber-300 ml-2">working…</span>
     </div>
   </header>
 
@@ -155,7 +170,7 @@
     <section class="lg:col-span-5 panel">
       <header class="panel-header">
         <h2><span class="panel-code">[02·DETAIL]</span> Incident detail</h2>
-        <span class="panel-meta">click a card</span>
+        <span id="detail-meta" class="panel-meta">select an incident</span>
       </header>
       <div id="detail-panel" class="panel-body">
         <p class="empty-state">[ SELECT INCIDENT · AGENT TIMELINE STANDBY ]</p>
@@ -207,7 +222,7 @@
 
       <div class="panel">
         <header class="panel-header">
-          <h2><span class="panel-code">[06·VOICE]</span> Voice Live updates</h2>
+          <h2><span class="panel-code">[06·VOICE]</span> Voice updates</h2>
           <span class="panel-meta">polling · 5s</span>
         </header>
         <div id="voice-panel"

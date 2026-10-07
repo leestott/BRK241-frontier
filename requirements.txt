@@ -1,48 +1,51 @@
 # --- Real Azure SDKs ---
-azure-identity>=1.25.3
-azure-ai-projects>=2.3.0
-azure-ai-agents>=1.2.0b6
+azure-identity>=1.26.0
+# Agent Framework Foundry 1.13.1 currently requires azure-ai-projects <2.7.
+azure-ai-projects>=2.6.0,<2.7.0
 azure-eventhub>=5.15.1
-azure-keyvault-secrets>=4.11.0
-azure-monitor-opentelemetry>=1.8.9
+azure-keyvault-secrets>=4.11.2
+azure-monitor-opentelemetry>=1.8.10
 azure-core>=1.41.0
 # Foundry IQ knowledge base (Azure AI Search agentic retrieval). Beta pin —
 # the knowledge base / knowledge source APIs are preview.
-azure-search-documents>=12.1.0b1
+azure-search-documents>=12.1.0b2
 
-# --- Microsoft Agent Framework (preview) ---
-# Pinned loosely; orchestrator falls back to Foundry SDK if not installed.
-agent-framework; python_version>="3.10"
+# --- Microsoft Agent Framework ---
+# Use the core package, not the umbrella "all" extra: unrelated Gemini/AG-UI
+# plugins currently impose conflicting WebSockets and FastAPI requirements.
+agent-framework-core>=1.19.0; python_version>="3.10"
 # Foundry integration: FoundryChatClient/FoundryAgent, memory, toolbox, evals.
-agent-framework-foundry; python_version>="3.10"
+agent-framework-foundry>=1.13.1; python_version>="3.10"
 # Hosted-agent runtime: ResponsesHostServer serves /responses + /readiness.
 # Required inside the Dockerfile.hosted image; optional for local UI demo.
-agent-framework-foundry-hosting; python_version>="3.10"
-azure-ai-agentserver-responses; python_version>="3.10"
+agent-framework-foundry-hosting>=1.0.0b260918; python_version>="3.10"
+azure-ai-agentserver-responses>=2.2.0; python_version>="3.10"
 
 # --- Teams integration ---
 pymsteams>=0.2.5
 httpx>=0.28.1
 
 # --- Voice Live realtime upstream client ---
-websockets>=16.0
+websockets>=17.1
 
 # --- Mock D365 (Dataverse-shaped REST) ---
-fastapi>=0.115.0
-uvicorn[standard]>=0.51.0
+# Agent Framework 1.19.0's AG-UI integration currently requires FastAPI <0.142.
+fastapi>=0.141.0,<0.142.0
+uvicorn[standard]>=0.54.0
 
 # --- OpenTelemetry ---
-opentelemetry-api==1.43.0
-opentelemetry-sdk==1.43.0
-opentelemetry-instrumentation-httpx==0.64b0
+# Azure Monitor OpenTelemetry 1.8.10 currently requires the 1.44/0.65 line.
+opentelemetry-api==1.45.0
+opentelemetry-sdk==1.45.0
+opentelemetry-instrumentation-httpx==0.66b0
 
 # --- Demo UX & utils ---
 rich>=15.0.0
-pydantic>=2.9.2
+pydantic>=2.13.4
 pydantic-settings>=2.14.2
 python-dotenv>=1.2.2
 typer>=0.26.8
-tenacity>=9.0.0
+tenacity>=9.1.4
 jinja2>=3.1.6
 
 # --- Dev / test ---

@@ -103,7 +103,7 @@ _SYSTEM_TOOLS: list[Any] = [
 def build_system_agent() -> Any:
     """Build the Outage Response Agent System as a Microsoft Agent Framework agent."""
     from agent_framework import Agent
-    from agent_framework_foundry import FoundryChatClient
+    from agent_framework.foundry import FoundryChatClient
     from azure.identity import DefaultAzureCredential
 
     settings = get_settings()
@@ -126,6 +126,7 @@ def build_system_agent() -> Any:
         description="Autonomous fibre-outage response: analyse, coordinate, dispatch.",
         tools=tools,
         context_providers=build_memory_providers() or None,
+        default_options={"store": False},
     )
     logger.info(
         "built Outage Response Agent System",

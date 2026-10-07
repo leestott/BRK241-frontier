@@ -7,6 +7,7 @@ import json
 import pytest
 
 from fibreops.agents import factory
+from fibreops.agents.publisher import load_registry
 from fibreops.agents.factory import (
     AgentBackend,
     LocalAgent,
@@ -53,6 +54,26 @@ def test_resolve_backend_auto_with_foundry_no_registry_is_foundry(monkeypatch, t
     monkeypatch.chdir(tmp_path)  # ensure no state/foundry_agents.json
     _refresh_settings()
     assert _resolve_backend(None) == AgentBackend.FOUNDRY
+
+
+def test_published_agents_app_setting_overrides_local_registry(monkeypatch, chdir_state_tmp):
+    monkeypatch.setenv("FIBREOPS_PUBLISHED_AGENTS", json.dumps({
+        "incident_analysis": {"agent_name": "published-incident", "version": "3"},
+        "netops_coordinator": {"agent_name": "published-netops", "version": "4"},
+        "field_dispatch": {"agent_name": "published-dispatch", "version": "5"},
+    }))
+    monkeypatch.setenv("AZURE_AI_PROJECT_ENDPOINT", "https://example/")
+    monkeypatch.setenv("FIBREOPS_AGENT_BACKEND", "auto")
+    _refresh_settings()
+
+    assert load_registry()["incident_analysis"]["version"] == "3"
+    assert _resolve_backend(None) == AgentBackend.HOSTED
+
+
+def test_invalid_published_agents_app_setting_raises(monkeypatch):
+    monkeypatch.setenv("FIBREOPS_PUBLISHED_AGENTS", '{"incident_analysis":{}}')
+    with pytest.raises(ValueError, match="FIBREOPS_PUBLISHED_AGENTS"):
+        load_registry()
 
 
 def test_factory_returns_local_agent_for_each_role():
