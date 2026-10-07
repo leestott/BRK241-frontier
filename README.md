@@ -13,11 +13,10 @@ checkpoint **`17441e16ccb17110b1e643ffb5930bba95379f87`**. Only Markdown
 documentation differs. The existing demo uses image `release-20261007-171059`,
 canonical voice agent **v4**, native `marin` and browser voice script **v3**.
 
-The unpromoted incident candidate and browser v4 changes from `c80c2e9` are
-preserved separately on local branch `voice-optimization-c80c2e9`, not in this
-branch's active code. Its incident scores improved, but language and factual
-regressions prevented promotion. Do not use that experimental commit as the
-production build source.
+Experimental incident tooling and browser v4 changes are not part of this
+branch's production-aligned code. See the reproduction guide for their separate
+evaluation workflow and measured limitations. Do not use an experimental
+revision as the production build source.
 
 See [Reproducing the deployed demo](docs/REPRODUCING.md) for the immutable image
 digest, source-alignment check, safe local setup, live validation and clearly

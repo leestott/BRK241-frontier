@@ -7,11 +7,9 @@ to deployed source checkpoint **`17441e16ccb17110b1e643ffb5930bba95379f87`**.
 Only Markdown documentation differs from that checkpoint. This is intentional:
 do not mix unpromoted experimental code into the production source.
 
-Commit `c80c2e9` included experimental application, voice-publisher and evaluation
-changes. It is preserved on local branch **`voice-optimization-c80c2e9`**, not as
-the current production-aligned tree. A corrective commit restores production
-code without rewriting history. The older experimental commit remains in Git
-history; it must not be used as the production build source.
+Experimental tooling is separate from the production-aligned source; see
+[Evaluation tooling and experimental results](#evaluation-tooling-and-experimental-results).
+Do not use an experimental revision as the production build source.
 
 Verified deployed release, 7 October 2026:
 
@@ -92,7 +90,8 @@ Open <http://127.0.0.1:8766/services-architecture.html>. It is not live telemetr
 
 Azure CLI and browser sign-in are separate. CLI login does not refresh an
 expired App Service browser cookie. Keep actual deployment identifiers in
-ignored local configuration:
+ignored local configuration. The tenant, subscription, resource-group and
+web-app values below are placeholders for your own environment:
 
 ```powershell
 az login --tenant <your-tenant-id>
@@ -122,7 +121,7 @@ disclosed limitations, not errors proven permanently eliminated.
 
 See the [deployment procedure](../README.md#deploy-to-azure) for a new environment.
 `azd up` can run publishing hooks and create versions; it is not a read-only
-health check. No deployment or voice promotion was performed for this correction.
+health check. Deployment and voice promotion require an explicit rollout decision.
 
 ## Evaluation tooling and experimental results
 
@@ -163,10 +162,10 @@ unconfirmed dispatch into definite non-dispatch. It was **not promoted**.
 The controlled incident fixtures do not verify live dispatch or notification.
 These scores are not directly comparable to the older evaluation protocol.
 
-| Latest-portal suite | Production run | Candidate run |
-|---|---|---|
-| `incidents-v2` | `evalrun_30ce1041d6b14e81a095e1ffd0ce0bf4` | `evalrun_a4adf67f669d429180464f990733c89b` |
-| `language` | `evalrun_9e48196e80f94adf9750de2f7b702aae` | `evalrun_cb2a2c92ac5945ad9c7b1862480acd08` |
+To reproduce the experiment, publish a separately named candidate in your own
+Foundry project and record the returned version. Keep project-specific
+evaluation IDs, portal links and definition backups with your private run
+artifacts, not in the public guide.
 
 All four runs completed with zero evaluator errors. The experimental tooling
 verified downloaded portal rows against saved SDK scores. Incident publication
