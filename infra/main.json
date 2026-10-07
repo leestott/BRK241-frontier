@@ -74,7 +74,7 @@
     },
     "azureVoiceAgentVoice": {
       "type": "string",
-      "defaultValue": "en-GB-RyanNeural",
+      "defaultValue": "en-GB-OllieMultilingualNeural",
       "metadata": {
         "description": "Azure standard voice for the separately published voice agent."
       }

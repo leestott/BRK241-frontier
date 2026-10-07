@@ -33,7 +33,7 @@ param azureVoiceAgentName string = ''
 param azureVoiceAgentVersion string = ''
 
 @description('Azure standard voice for the separately published voice agent.')
-param azureVoiceAgentVoice string = 'en-GB-RyanNeural'
+param azureVoiceAgentVoice string = 'en-GB-OllieMultilingualNeural'
 
 @description('Single-tenant Entra app registration client ID for App Service sign-in.')
 param entraClientId string

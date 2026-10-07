@@ -33,6 +33,27 @@ def _reload_settings(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
     config.get_settings.cache_clear()
 
 
+def test_voice_definition_matches_polish_input_language() -> None:
+    definition_path = (
+        Path(__file__).parents[1] / "src" / "fibreops" / "voice_live" / "definition.json"
+    )
+    definition = json.loads(definition_path.read_text(encoding="utf-8"))
+    instructions = definition["instructions"]
+
+    assert "Reply in Polish when the user speaks Polish" in instructions
+    assert "explicitly asks for a response in Polish" in instructions
+    assert "Otherwise, reply in natural British English" in instructions
+    assert "summarise the result in the selected response language" in instructions
+    assert "native Polish pronunciation and stress, not a British accent" in instructions
+    assert "Polish text with its correct diacritics" in instructions
+    assert "For English replies, use British English pronunciation (en-GB)" in instructions
+
+
+def test_voice_agent_defaults_to_multilingual_british_voice() -> None:
+    field = config.Settings.model_fields["azure_voice_agent_voice"]
+    assert field.default == "en-GB-OllieMultilingualNeural"
+
+
 def test_build_upstream_url_unconfigured() -> None:
     config.get_settings.cache_clear()
     assert build_upstream_url(config.Settings(AZURE_VOICE_AGENT_NAME="")) is None

@@ -40,7 +40,7 @@ def test_speak_status_update_writes_to_outbox_by_default(chdir_state_tmp: Path) 
     assert "8,200" in payload["text"]
     # SSML envelope is well-formed and uses a critical voice.
     assert payload["ssml"].startswith("<speak")
-    assert "en-GB-RyanNeural" in payload["voice"] or payload["voice"].startswith("en-GB-")
+    assert payload["voice"] == "en-GB-OllieMultilingualNeural"
     assert "<mstts:express-as" in payload["ssml"]
     assert out["delivery"]["status"] == "logged-locally"
 
