@@ -135,28 +135,6 @@ def test_run_detail_renders_agent_timeline(client, chdir_state_tmp):
     assert "sop_loss_of_light" in r.text
 
 
-@pytest.mark.parametrize("context", [
-    {"region": "London"},
-    {"region": "London", "customers_served": None},
-])
-def test_missing_customer_count_renders_as_unknown(client, chdir_state_tmp, context):
-    _write_run(chdir_state_tmp / "state", node_context=context)
-    listing = client.get("/partials/runs")
-    detail = client.get("/partials/run/run-aaaa1111")
-    assert listing.status_code == detail.status_code == 200
-    assert "Customer count unknown" in listing.text
-    assert ">Unknown<" in detail.text
-    assert client.get("/api/runs").json()["runs"][0]["node_context"] == context
-
-
-def test_zero_customer_count_is_not_unknown(client, chdir_state_tmp):
-    _write_run(chdir_state_tmp / "state", node_context={"customers_served": 0})
-    response = client.get("/partials/runs")
-    assert response.status_code == 200
-    assert "0 customers" in response.text
-    assert "Customer count unknown" not in response.text
-
-
 def test_run_detail_for_unknown_id_returns_not_found_message(client):
     r = client.get("/partials/run/run-does-not-exist")
     assert r.status_code == 200

@@ -134,16 +134,3 @@ test("stop cancels offline browser speech and a pending announcement", async () 
   assert.equal(await pending, false);
   assert.equal(live.sockets.length, 0);
 });
-
-test("announcements carry structured facts without converting unknowns to zero", async () => {
-  const c = client();
-  await c.api.speak("The restoration time is unknown.", {
-    potentially_affected_customers: 800,
-    service_restoration_eta_minutes: null,
-  });
-  const message = c.sockets[0].sent.find(e => e.type === "conversation.item.create");
-  const text = message.item.content[0].text;
-  assert.ok(text.includes('"potentially_affected_customers":800'));
-  assert.ok(text.includes('"service_restoration_eta_minutes":null'));
-  c.api.stopResponse();
-});

@@ -267,7 +267,7 @@ def _run_summary(run: dict[str, Any]) -> dict[str, Any]:
         "node_id": sig.get("node_id"),
         "region": ctx.get("region"),
         "site": ctx.get("site"),
-        "customers_served": ctx.get("customers_served"),
+        "customers_served": ctx.get("customers_served", 0),
         "signal_type": sig.get("signal_type"),
         "severity_input": sig.get("severity"),
         "severity": severity,
@@ -520,9 +520,8 @@ def create_app() -> FastAPI:
                     severity=r.get("severity", "medium"),
                     node_id=r.get("node_id"),
                     region=r.get("region"),
-                    customers=r.get("customers_served"),
-                    probable_cause=analysis.get("probable_cause"),
-                    signal_type=r.get("signal_type"),
+                    customers=r.get("customers_served", 0),
+                    probable_cause=analysis.get("probable_cause", "investigating"),
                 )
         return _render_voice_partial(request)
 

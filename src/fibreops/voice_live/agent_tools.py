@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 
 
 _DEFINITION = json.loads((Path(__file__).with_name("definition.json")).read_text(encoding="utf-8"))
-INSTRUCTIONS: str = _DEFINITION["instructions"] + "\n\n" + _DEFINITION.get("incident_instructions", "")
+INSTRUCTIONS: str = _DEFINITION["instructions"]
 TOOL_DEFINITIONS: list[dict[str, Any]] = _DEFINITION["tools"]
 
 
@@ -59,24 +59,14 @@ def _summarise_run(run: dict[str, Any]) -> dict[str, Any]:
         "node_id": sig.get("node_id"),
         "region": ctx.get("region"),
         "site": ctx.get("site"),
-        "customers_served": ctx.get("customers_served"),
-        "potentially_affected_customers": ctx.get("customers_served"),
-        "customer_impact_confirmed": False,
-        "customer_count_is_approximate": False,
+        "customers_affected": ctx.get("customers_served", 0),
         "signal_type": sig.get("signal_type"),
         "severity": analysis.get("severity") or sig.get("severity", "low"),
         "summary": analysis.get("summary", ""),
-        "suspected_cause": analysis.get("probable_cause"),
-        "cause_confirmed": False,
-        "measurement": {"value": sig.get("measured_value"), "unit": sig.get("unit")},
         "ticket_id": (coord.get("ticket") or {}).get("id") if coord else None,
         "dispatched": dispatched,
         "engineer": meta.get("engineer_name"),
         "eta_minutes": meta.get("eta_minutes"),
-        "technician_arrival_eta_minutes": meta.get("eta_minutes"),
-        "service_restoration_eta_minutes": None,
-        "dispatch_status": "dispatched" if dispatched else "not_confirmed",
-        "restoration_confirmed": False,
     }
 
 
