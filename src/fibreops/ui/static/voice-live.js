@@ -18,6 +18,11 @@
   let wsReady = null;
   let audioCtx = null;
   let nextPlayTime = 0;
+  const playingSources = new Set();
+  let activeResponseId = null;
+  let cancelNextResponse = false;
+  const suppressedResponses = new Set();
+  let speakRequestId = 0;
   let mode = "idle";          // "idle" | "speak" | "mic"
   let mic = null;             // {stream, source, processor}
   let micActive = false;
@@ -82,10 +87,38 @@
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     src.connect(ctx.destination);
+    playingSources.add(src);
+    src.onended = () => {
+      playingSources.delete(src);
+      src.disconnect();
+    };
     const now = ctx.currentTime;
     const startAt = Math.max(now, nextPlayTime);
     src.start(startAt);
     nextPlayTime = startAt + buffer.duration;
+  }
+
+  function stopPlayback() {
+    for (const source of playingSources) source.stop();
+    playingSources.clear();
+    nextPlayTime = 0;
+  }
+
+  function stopResponse() {
+    speakRequestId++;
+    stopPlayback();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    if (activeResponseId) {
+      suppressedResponses.add(activeResponseId);
+      send({ type: "response.cancel", response_id: activeResponseId });
+    } else {
+      cancelNextResponse = true;
+    }
+    if (mode !== "mic") {
+      mode = "idle";
+      if (ws) ws.close();
+    }
+    setStatus(mode === "mic" ? "Response stopped — listening" : "Response stopped", "info");
   }
 
   async function loadSession() {
@@ -125,6 +158,8 @@
         mode = "idle";
         ws = null;
         wsReady = null;
+        activeResponseId = null;
+        suppressedResponses.clear();
       };
       ws.onmessage = (event) => {
         onMessage(event);
@@ -148,16 +183,34 @@
     let msg;
     try { msg = JSON.parse(evt.data); } catch { return; }
     switch (msg.type) {
+      case "input_audio_buffer.speech_started":
+        stopPlayback();
+        if (activeResponseId) suppressedResponses.add(activeResponseId);
+        cancelNextResponse = false;
+        break;
+      case "response.created":
+        activeResponseId = msg.response.id;
+        if (cancelNextResponse) {
+          suppressedResponses.add(activeResponseId);
+          send({ type: "response.cancel", response_id: activeResponseId });
+          cancelNextResponse = false;
+        }
+        break;
       case "session.updated":
         if (mode === "speak") setStatus("Speaking…", "ok");
         if (mode === "mic") setStatus("Listening — speak now", "ok");
         break;
       case "response.audio.delta":
       case "response.output_audio.delta":
-        if (msg.delta) playPcm16(msg.delta);
+        if (msg.delta && !suppressedResponses.has(msg.response_id)) playPcm16(msg.delta);
         break;
       case "response.done":
       case "response.completed":
+        if (msg.response?.id === activeResponseId) {
+          if (msg.response.status === "cancelled") stopPlayback();
+          activeResponseId = null;
+        }
+        suppressedResponses.delete(msg.response?.id);
         if (mode === "speak") {
           setStatus("Voice idle", "info");
           mode = "idle";
@@ -190,13 +243,16 @@
   }
 
   async function speak(text) {
+    const requestId = ++speakRequestId;
     await loadSession();
+    if (requestId !== speakRequestId) return false;
     if (!session.enabled) {
       // Offline demo: no published voice agent, use local browser speech.
       return speakBrowserTts(text);
     }
     if (!text || !text.trim()) return false;
-    nextPlayTime = 0;
+    stopPlayback();
+    cancelNextResponse = false;
     mode = "speak";
     setStatus("Connecting…", "info");
     try {
@@ -204,6 +260,7 @@
     } catch {
       return false;
     }
+    if (mode !== "speak") return false;
     send({
       type: "conversation.item.create",
       item: {
@@ -242,6 +299,7 @@
       return;
     }
     mode = "mic";
+    cancelNextResponse = false;
     setStatus("Connecting mic…", "info");
     try { await ensureWs(); } catch {
       stream.getTracks().forEach((t) => t.stop());
@@ -281,6 +339,7 @@
   }
 
   function stopMic() {
+    stopPlayback();
     if (mic) {
       try { mic.processor.disconnect(); } catch {}
       try { mic.source.disconnect(); } catch {}
@@ -309,7 +368,7 @@
   }
 
   // Public API.
-  window.voiceAgent = { speak, speakLatest, startMic, stopMic, toggleMic, loadSession };
+  window.voiceAgent = { speak, speakLatest, startMic, stopMic, stopResponse, toggleMic, loadSession };
 
   // After the voice partial swaps in (i.e. after "Speak status"), play the
   // newest utterance through Voice Live if configured.

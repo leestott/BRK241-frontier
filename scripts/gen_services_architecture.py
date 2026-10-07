@@ -8,11 +8,12 @@ Pure-Pillow renderer (only ``Pillow`` required)::
 
     .\\.venv\\Scripts\\python.exe scripts\\gen_services_architecture.py
 
-Output: docs/images/services-architecture.png
+Outputs the static PNG and docs/services-architecture.html walkthrough.
 """
 from __future__ import annotations
 
 import math
+import json
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -334,7 +335,7 @@ def main() -> Path:
     flow(d, R(n2), (n4[0], n4[1] + 18), AZURE_DK, label="orchestrate", loff=(0, -16))
     flow(d, R(n3), (n4[0], n4[3] - 16), AZURE_DK, label="signals", loff=(0, 8))
     flow(d, R(n4), L(n5), PURPLE)
-    flow(d, R(n5), L(n6), PURPLE)
+    flow(d, R(n5), L(n6), PURPLE, label="if dispatch", loff=(0, 32))
     flow(d, R(n6), L(n7), PURPLE)
     # agents <-> knowledge/search tools
     flow(d, (676, 366), T(n8), TEAL, label="SOP lookup", loff=(-2, 0))
@@ -342,11 +343,15 @@ def main() -> Path:
     # integration tools -> external services
     flow(d, R(n7), L(n10), AZURE, dashed=True, label="notice / update", loff=(0, -16))
     flow(d, R(n7), L(n11), GREEN, dashed=True, label="ticket / booking", loff=(0, -14))
-    flow(d, R(n7), L(n12), PURPLE, dashed=True, label="status via UI", loff=(0, 8))
+    voice_route = [R(n2), (566, 318), (566, 744), (1270, 744), (1270, 568), L(n12)]
+    for start, end in zip(voice_route, voice_route[1:]):
+        dline(d, start, end, PURPLE, 3)
+    arrowhead(d, voice_route[-2], voice_route[-1], PURPLE, 3)
+    ctext(d, 930, 720, "On-demand voice: console /ws/voice proxy (not a tool-to-Speech call)", F_SMALL, PURPLE)
     # Foundry hosts the agents
     flow(d, L(n13), (cont[2], cont[3] - 30), AZURE_DK, dashed=True,
          label="hosts Prompt Agents", loff=(0, 16))
-    # Work IQ remote connection (external data)
+    # Optional Foundry IQ connection.
     flow(d, R(n9), (1280, 760), TEAL, dashed=True, label="Azure AI Search", loff=(0, -16))
 
     # ============ BOTTOM BAND ============================================
@@ -361,7 +366,7 @@ def main() -> Path:
     dline(d, (52, band_y + 100), (120, band_y + 100), MUTED, 3)
     arrowhead(d, (52, band_y + 100), (120, band_y + 100), MUTED, 3)
     d.text((132, band_y + 91), "External data flow", font=F_SMALL, fill=INK)
-    d.text((50, band_y + 135), "①–⑬  numbered service nodes", font=F_SMALL, fill=MUTED)
+    d.text((50, band_y + 135), "Nodes 1-13: numbered services", font=F_SMALL, fill=MUTED)
     d.text((50, band_y + 160), "Backends: hosted · foundry · local", font=F_SMALL, fill=MUTED)
 
     # Azure services & components
@@ -392,17 +397,25 @@ def main() -> Path:
     d.rounded_rectangle(sec, radius=12, fill="#eef7ee", outline="#cbe6c9", width=2)
     ic_shield(d, 1282, band_y + 34, 30, GREEN)
     d.text((1306, band_y + 18), "Security & Governance", font=F_LANE, fill="#256e22")
-    body = ("Managed identity (DefaultAzureCredential), Microsoft Entra ID, and "
-            "RBAC role grants (scripts/grant-mi-roles.ps1) applied across all "
-            "components. Secrets via env / Key Vault.")
+    body = ("Entra sign-in protects the deployed console. Azure calls use "
+            "managed identity and RBAC. Teams uses a webhook secret. "
+            "D365 here is a local mock, not a production connector.")
     yy = band_y + 64
     for ln in wrap(d, body, F_SMALL, 372):
         d.text((1268, yy), ln, font=F_SMALL, fill=INK)
         yy += 19
 
+    d.text((36, 1028), "Voice acceptance (separate workflow): real audio -> Evaluation SDK -> latest Foundry portal gates -> native-speaker review",
+           font=F_NODE, fill=INK)
     out = Path(__file__).resolve().parents[1] / "docs" / "images" / "services-architecture.png"
     out.parent.mkdir(parents=True, exist_ok=True)
     img.save(out, "PNG")
+    nodes = dict(enumerate((n1, n2, n3, n4, n5, n6, n7, n8, n9, n10, n11, n12, n13), start=1))
+    nodes[14] = (30, 1016, 1650, 1053)
+    template = Path(__file__).with_name("services-architecture.template.html").read_text(encoding="utf-8")
+    (out.parent.parent / "services-architecture.html").write_text(
+        template.replace("__NODE_DATA__", json.dumps(nodes)), encoding="utf-8",
+    )
     return out
 
 

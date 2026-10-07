@@ -39,8 +39,10 @@ def _voice_for_severity(severity: str) -> str:
     return "en-GB-LibbyNeural"
 
 
-def _build_ssml(*, voice: str, text: str, severity: str) -> str:
-    """Build an SSML body. Critical incidents speak with mild emphasis."""
+def _build_ssml(*, voice: str, text: str, severity: str) -> str | None:
+    """Export legacy Azure Neural SSML; native realtime voices use plain text."""
+    if not voice.endswith("Neural"):
+        return None
     rate = "+5%" if severity.lower() == "critical" else "0%"
     style = "newscast-formal" if severity.lower() == "critical" else "chat"
     return (

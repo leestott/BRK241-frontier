@@ -38,7 +38,8 @@ MCP connection when configured.
 A layered, service-oriented view of FibreOps. Read it left-to-right across four
 lanes — **Client → Application Layer → Agent Framework Orchestration →
 External Services** — with an Azure services band along the bottom and
-managed-identity security/governance applied across every component.
+Entra sign-in and managed identity for supported Azure calls. Teams uses a
+configured webhook; D365 in this demo is a mock, not a secured production connector.
 
 ![FibreOps services architecture diagram](./docs/images/services-architecture.png)
 
@@ -63,16 +64,37 @@ that leave the process for an Azure or Microsoft 365 service).
 | ⑬ | Microsoft Foundry Agent Service | External | Hosts the published Prompt Agents that back ④–⑥ |
 
 **End-to-end flow.** A telemetry signal arrives at ③ (Event Hub or generator)
-and the **Orchestrator** (`handle_signal`, lane 3) drives it through the agent
-pipeline ④ → ⑤ → ⑥. Each agent calls the typed tools ⑦–⑨ — SOP/topology
+and the **Orchestrator** (`handle_signal`, lane 3) drives it through analysis ④
+and coordination ⑤. Dispatch ⑥ is conditional on the coordinator handoff or
+the configured high/critical-severity auto-dispatch policy. Agents use typed tools ⑦–⑨ — SOP/topology
 lookups and Foundry IQ grounding — then fans out to the external services:
 ticket and booking to **D365** ⑪, Adaptive Cards to **Microsoft Teams** ⑩, and
-spoken updates through the **Foundry Voice Agent (Preview)** ⑫. The agents themselves are
+status text recorded for the console. On operator request, the console ② sends
+audio or announcement text through its server-side WebSocket proxy to the
+**Foundry Voice Agent (Preview)** ⑫; the tools do not call a standalone Speech
+service to generate production replies. The agents themselves are
 hosted Prompt Agents in **Microsoft Foundry Agent Service** ⑬. The operator ①
 sees everything live in the NOC Console ②.
 
 > Regenerate with `python scripts/gen_services_architecture.py`
 > (writes `docs/images/services-architecture.png`).
+
+Install the optional renderer dependencies with `python -m pip install -e ".[diagrams]"`.
+The services generator also writes the HTML walkthrough from
+`scripts/services-architecture.template.html`; edit the template rather than the generated HTML.
+
+**Animated documentation:** [open the services execution walkthrough](./docs/services-architecture.html).
+It covers the conditional incident pipeline and the separate voice/evaluation
+path, with Play/Pause, Step and Restart controls. It is illustrative, makes no
+service calls, and honours reduced-motion preferences. GitHub displays HTML as
+source; open it from your local checkout, or preview from the repository root:
+
+```powershell
+python -m http.server 8765 --bind 127.0.0.1 --directory docs
+```
+
+Then open <http://127.0.0.1:8765/services-architecture.html>. The animation is
+documentation-only and is not deployed into the NOC console.
 
 ## Capabilities
 
@@ -94,7 +116,8 @@ sees everything live in the NOC Console ②.
   Webhook (any unconfigured channel is logged to `state/teams_outbox.jsonl`).
 - 🎟️ **D365 mock** — FastAPI service mimicking `/api/data/v9.2/incidents` and
   `/api/data/v9.2/bookableresourcebookings`. Swap `D365_MOCK_BASE_URL` to a
-  real Dataverse environment with no code changes.
+  production Dataverse environment only after implementing its authentication,
+  permissions and schema mapping; changing the URL alone is not sufficient.
 - 🔭 **Observability** — JSON structured logs + OpenTelemetry spans persisted
   to `state/traces.jsonl`. Set `APPLICATIONINSIGHTS_CONNECTION_STRING` to
   ship to Application Insights.
@@ -253,6 +276,8 @@ Behaviour:
 - `tools/voice.speak_status_update(...)` records an announcement in
   `state/voice_outbox.jsonl`; the browser requests the published agent to
   speak that text. Without an agent, browser speech supplies an offline demo.
+  Native realtime voices use plain text; their outbox `ssml` field is `null`
+  rather than an invalid SSML document naming a non-Azure voice.
 - The **Speak status** button in the NOC console (`🔊 Speak status`) speaks
   the latest incident — uses the `engineer_dispatched` phrase when dispatch
   is complete, otherwise `outage_detected`.
@@ -262,14 +287,18 @@ Behaviour:
 - The voice updates pane in the UI shows the rolling outbox
   (voice, transcript, incident id, timestamp) so the audience sees what the
   operator would hear.
+- **Stop response** immediately silences queued audio and cancels the current
+  generation. In microphone mode it keeps listening for the next question.
+  **Stop talking** closes the microphone/session. Speaking over the agent also
+  stops queued playback; late audio from the interrupted response is discarded.
 
 | Env var                       | Purpose                                                  |
 |-------------------------------|----------------------------------------------------------|
 | `AZURE_AI_PROJECT_ENDPOINT`   | Foundry project endpoint for text and voice agents     |
 | `AZURE_VOICE_AGENT_NAME`      | Published `kind: voice` agent; empty = offline mode     |
 | `AZURE_VOICE_AGENT_VERSION`   | Optional tested version; empty uses latest              |
-| `AZURE_VOICE_AGENT_VOICE`     | Voice configured at publish time (default `en-GB-OllieMultilingualNeural`) |
-| `AZURE_VOICE_AGENT_MODEL`     | Managed voice model configured at publish time (`gpt-realtime`) |
+| `AZURE_VOICE_AGENT_VOICE`     | Native realtime voice configured at publish time (default `marin`) |
+| `AZURE_VOICE_AGENT_MODEL`     | Managed voice model configured at publish time (`gpt-realtime-2.1`) |
 | `FIBREOPS_VOICE_UPDATES`      | `1` = agents speak automatically; default `0` (UI only)  |
 
 To publish during `azd up`, set `FIBREOPS_PUBLISH_VOICE=true` **only in the
@@ -281,28 +310,141 @@ publisher is necessary because the current Agent Framework integration
 requires `azure-ai-projects<2.7` while Voice Agents Preview requires
 `azure-ai-projects>=2.7`. Authentication uses the web app managed identity;
 no API keys or bearer tokens are placed in the browser or tracked YAML.
-The project must support Voice Agents Preview and managed `gpt-realtime`.
-The published definition replies in Polish when the operator speaks Polish or
-explicitly requests Polish; otherwise it replies in British English. The
-default multilingual British voice supports both response languages. The preview
-agent's audio output sets `prefer_locales=["pl-PL", "en-GB"]` to request Polish
-(Poland) pronunciation for Polish and British pronunciation for English. It does
-not force a single `voice_locale` across both languages or switch voice identities.
-The instructions also require correct Polish diacritics and native Polish
-pronunciation rather than anglicised speech. Locale configuration is not an
-acoustic quality guarantee; have a native Polish speaker assess the audio.
+The project must support Voice Agents Preview and managed `gpt-realtime-2.1`.
+The agent uses native multilingual speech (`voice_type="openai"`, voice `marin`),
+not a British Azure TTS voice or a Polish-first locale list. Legacy Azure Neural
+voice overrides must be replaced before publishing; the publisher rejects them.
+These are **source/publisher defaults**, not a claim that every existing deployment
+has been promoted. An app-only redeploy can deliberately retain an older pinned
+voice version. Check effective `session.updated` settings; never infer the live
+voice policy from the image's packaged definition or the configured voice label.
+Whisper input transcription is enabled without forcing an input language. A 1.2-second
+VAD pause avoids prematurely splitting short multi-sentence language requests.
+
+The language policy is evaluated afresh on **every user turn**:
+
+| Current question | Reply |
+| --- | --- |
+| English, including after a Polish or Arabic answer | English |
+| Polish or Arabic without an explicit output-language request | English |
+| Any input explicitly requesting Polish | Polish for this turn only |
+| Any input explicitly requesting Arabic | Modern Standard Arabic for this turn only |
+| Any input explicitly requesting English | English |
+| Mentioning Polish/Arabic colleagues or locations | English |
+| Ambiguous or unsupported output-language request | Clarification in English |
+
+Prior overrides, tool-result language, names and quoted text must not determine
+the next reply's language. Unclear input requests clarification rather than
+guessing Polish or Arabic. Instructions include Polish/Arabic fibre-network terminology and
+require preservation of uncertainty, negation, numbers, units and identifiers.
+This is a model-enforced policy, not a mathematical guarantee. Test real audio
+and obtain native-speaker approval for pronunciation and translation quality.
 
 Changing these instructions or audio settings requires publishing a new voice
 agent version, updating `AZURE_VOICE_AGENT_VERSION`, and opening a new voice
 session in the browser. The English **Speak status** templates and offline
 browser-speech fallback are unchanged.
 
-Validate the publisher's serialized pronunciation configuration with the isolated
+Validate the publisher's serialized native-speech configuration with the isolated
 preview SDK (no Azure calls):
 
 ```powershell
 .\.venv-voice\Scripts\python.exe -m unittest tests.test_voice_agent_publisher
+node --test tests\test_voice_client.cjs
 ```
+
+For repeatable live acceptance testing, `scripts/validate_voice_audio.py` synthesizes
+English, Polish and Arabic **input audio**, streams PCM16 at microphone rate through the
+published VAD, and saves reply WAVs, input/output transcripts and a JSON report.
+Sixteen cases run in one conversation, repeated three times by default, including switches,
+override expiry, mentions that are not overrides, and technical translation with
+negation, uncertainty and quantities. An independent `gpt-5.4-mini` text judge
+checks language, meaning, natural wording and recognition. Every case must pass;
+service errors, missing audio and incomplete runs fail explicitly.
+
+Run this against a separate candidate agent before changing the live version:
+
+```powershell
+python scripts\validate_voice_audio.py `
+  --project-endpoint $env:AZURE_AI_PROJECT_ENDPOINT `
+  --agent fibreops-noc-voice-language-candidate --version <candidate-version> `
+  --speech-endpoint $env:AZURE_VOICE_LIVE_ENDPOINT `
+  --judge-endpoint <Foundry-cognitive-services-endpoint> `
+  --output-dir state\voice-audio-evaluation --repeats 3
+```
+
+This opt-in test incurs Azure usage and requires Entra access to the Speech
+fixture endpoint, candidate agent and judge deployment. Use a fresh output
+directory. The separate Speech service is used **only to create synthetic test
+inputs**, not for the production agent's replies. Text judging and non-silent
+waveforms do not certify accents: the report explicitly leaves
+`human_listening_approved` false. Review the saved audio with a native speaker
+before accepting production-quality Polish or Arabic.
+
+### Azure AI Evaluation SDK and Foundry results
+
+Install `requirements-evaluation.txt` in an evaluation environment, separate from
+the web app and voice-publisher SDK environments. Add `--collect-only` to the audio
+command above to save the full spoken dataset without running its standalone judge.
+Then run the SDK evaluation from the repository root:
+
+```powershell
+python -m pip install -r requirements-evaluation.txt
+$env:PF_WORKER_COUNT = "2"
+python -m scripts.evaluate_voice_responses `
+  --audio-report state\voice-audio-evaluation\report.json `
+  --project-endpoint $env:AZURE_AI_PROJECT_ENDPOINT `
+  --judge-endpoint <Foundry-cognitive-services-endpoint> `
+  --judge-model gpt-5.4-mini `
+  --output-dir state\voice-sdk-evaluation
+```
+
+The SDK runs built-in Fluency and Coherence evaluators with reasoning-model support,
+plus a custom evaluator for response language, semantic accuracy, natural language,
+and input recognition. **Every row** must score at least 4/5 for fluency/coherence
+and 1/1 for all four custom metrics; averages cannot hide a failure. Incomplete
+audio datasets, evaluator errors, missing scores and outdated language policies
+fail closed. Limited SDK concurrency avoids overwhelming local CLI authentication
+and the judge endpoint.
+
+Quality iterations retain the full dataset and the same thresholds. The voice
+prompt favours direct, idiomatic answers with connected sentences and no redundant
+language announcements, while preserving exact facts and one-sentence requests.
+The built-in Fluency rubric measures written communication, including vocabulary
+range and sentence variety: a clear but simple spoken reply can still score 3/5.
+Inspect the recorded reasons rather than weakening the gate or adding filler.
+
+`azure_ai_project` logs the original SDK results to the specified Foundry project.
+The script additionally uses `AIProjectClient.get_openai_client().evals` to publish
+an evaluation and run visible in the **latest Foundry portal > Evaluations > Runs**.
+The new portal uses a different API from the legacy SDK uploads; those uploads
+alone do not populate its Runs tab. These are on-demand runs, not recurring schedules.
+
+The latest-portal run uses six deterministic string-check graders to apply the
+SDK acceptance gates without rescoring responses or hiding failures. Original
+numeric SDK scores, transcripts and the fluency, coherence and linguistic judges' explanations remain
+in each data row; portal pass rates represent threshold compliance, not 1-5 scores.
+The output directory includes `portal-run.json`, downloaded `portal-results.json`,
+the JSONL dataset, SDK results and a summary containing the SDK evaluation link
+and latest-portal evaluation/run IDs (plus a report URL when the service returns one).
+The summary also breaks down every metric by response language (`en`, `pl`, `ar`),
+including its average, minimum, pass/fail counts and threshold. A passing average
+does not override an individual failed reply.
+The script retrieves the original completed record, verifies its result reference
+and agent/version tags, and downloads every latest-portal result row. It also
+checks that portal pass counts agree with the SDK scores.
+
+To publish already-scored data without paying to judge it again, add
+`--sdk-results <existing-sdk-results.json>` and use a fresh output directory.
+The supplied audio report must exactly match every scored input row.
+Failed quality gates remain failures even if results were successfully uploaded.
+These synthetic datasets contain no customer incidents. Evaluation incurs model
+usage and requires Entra access to both the judge and project.
+SDK text scores do not certify a native accent: Polish and Arabic audio still
+require native-speaker listening approval.
+
+The shared [voice preview evaluation skill](.github/skills/foundry-voice-preview-evaluation/SKILL.md)
+captures this publication, acceptance and rollout procedure for repository agents.
 
 ## Foundry Routines (BRK241 slide 11)
 

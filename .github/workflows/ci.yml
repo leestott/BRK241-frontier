@@ -11,6 +11,19 @@ permissions:
   contents: read
 
 jobs:
+  evaluation-tooling:
+    name: Evaluation SDK gates (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-evaluation.txt
+      - run: python -m pip install -r requirements-evaluation.txt pytest
+      - run: python -m pytest --noconftest tests/test_voice_sdk_evaluation.py tests/test_voice_audio_validation.py -q
+
   test:
     name: pytest (${{ matrix.os }} / py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
@@ -56,6 +69,21 @@ jobs:
           FIBREOPS_AGENT_BACKEND: local
         run: |
           python -m pytest -q --maxfail=1
+
+      - name: Test voice playback and cancellation
+        run: node --test tests/test_voice_client.cjs
+
+      - name: Test isolated Voice Agents Preview publisher
+        shell: pwsh
+        run: |
+          $venv = Join-Path $env:RUNNER_TEMP "voice-publisher-tests"
+          python -m venv $venv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $python = if ($IsWindows) { Join-Path $venv "Scripts/python.exe" } else { Join-Path $venv "bin/python" }
+          & $python -m pip install -r requirements-voice.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $python -m unittest tests.test_voice_agent_publisher -v
+          exit $LASTEXITCODE
 
       - name: Verify deployable wheel includes voice agent definition
         shell: pwsh

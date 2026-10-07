@@ -24,7 +24,7 @@
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <link rel="stylesheet" href="/static/style.css?v=4" />
   <script src="/static/dashboard.js?v=1" defer></script>
-  <script src="/static/voice-live.js?v=2" defer></script>
+  <script src="/static/voice-live.js?v=3" defer></script>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22><text y=%2214%22 font-size=%2214%22>🛰️</text></svg>" />
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen font-sans noc-bg">
@@ -82,6 +82,11 @@
               class="btn-secondary"
               title="Open a duplex Voice Live session bound to the Foundry agent"
               onclick="window.voiceAgent && window.voiceAgent.toggleMic()">🎙️ Talk to agent</button>
+      <button id="voice-stop-btn"
+              type="button"
+              class="btn-secondary"
+              title="Cancel the current reply and stop playback; keep the microphone listening"
+              onclick="window.voiceAgent && window.voiceAgent.stopResponse()">Stop response</button>
       <span id="voice-status"
             class="text-[11px] font-mono px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300"
             data-kind="info">Voice idle</span>

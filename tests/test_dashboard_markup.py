@@ -12,6 +12,8 @@ def test_dashboard_separates_actions_and_operations(chdir_state_tmp):
     assert response.status_code == 200
     assert 'id="activity-status"' in response.text
     assert 'id="voice-status"' in response.text
+    assert 'id="voice-stop-btn"' in response.text
+    assert "window.voiceAgent.stopResponse()" in response.text
     assert "Voice idle" in response.text
     assert 'class="operations-menu"' in response.text
     assert 'hx-confirm="Permanently clear demo incidents' in response.text

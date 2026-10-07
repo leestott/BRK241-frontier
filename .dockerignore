@@ -27,14 +27,15 @@ Thumbs.db
 # Docs + tests aren't needed at runtime
 docs/
 tests/
-README.md
 CONTRIBUTING.md
 SECURITY.md
 CODE_OF_CONDUCT.md
-LICENSE
 *.md
+!README.md
+!LICENSE
 
 # Infra (the image itself doesn't deploy infra)
 infra/
 azure.yaml
 .venv-voice/
+.venv-evaluation/

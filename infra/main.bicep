@@ -32,8 +32,8 @@ param azureVoiceAgentName string = ''
 @description('Published voice-agent version; empty uses the latest.')
 param azureVoiceAgentVersion string = ''
 
-@description('Azure standard voice for the separately published voice agent.')
-param azureVoiceAgentVoice string = 'en-GB-OllieMultilingualNeural'
+@description('Native realtime voice for the separately published voice agent.')
+param azureVoiceAgentVoice string = 'marin'
 
 @description('Single-tenant Entra app registration client ID for App Service sign-in.')
 param entraClientId string

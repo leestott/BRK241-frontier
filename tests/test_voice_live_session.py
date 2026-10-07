@@ -33,25 +33,31 @@ def _reload_settings(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
     config.get_settings.cache_clear()
 
 
-def test_voice_definition_matches_polish_input_language() -> None:
+def test_voice_definition_defaults_to_english_with_explicit_per_turn_overrides() -> None:
     definition_path = (
         Path(__file__).parents[1] / "src" / "fibreops" / "voice_live" / "definition.json"
     )
     definition = json.loads(definition_path.read_text(encoding="utf-8"))
     instructions = definition["instructions"]
 
-    assert "Reply in Polish when the user speaks Polish" in instructions
-    assert "explicitly asks for a response in Polish" in instructions
-    assert "Otherwise, reply in natural British English" in instructions
-    assert "summarise the result in the selected response language" in instructions
-    assert "native Polish pronunciation and stress, not a British accent" in instructions
-    assert "Polish text with its correct diacritics" in instructions
-    assert "For English replies, use British English pronunciation (en-GB)" in instructions
+    assert "APPLY INDEPENDENTLY ON EVERY USER TURN" in instructions
+    assert "An earlier language override expires at the next user turn" in instructions
+    assert "ENGLISH IS THE DEFAULT RESPONSE LANGUAGE" in instructions
+    assert "Polish question without a language request -> English" in instructions
+    assert "Arabic question without a language request -> English" in instructions
+    assert "'answer in Polish' -> Polish for that turn" in instructions
+    assert "'answer in Arabic' -> Arabic for that turn" in instructions
+    assert "Re-check this policy after tool calls" in instructions
+    assert "uncertainty, negation, quantities, units, incident IDs" in instructions
+    assert "sieć światłowodowa" in instructions
+    assert "Modern Standard Arabic" in instructions
+    assert "Exact quantities must stay exact" in instructions
+    assert "Awaria może dotyczyć" in instructions
 
 
-def test_voice_agent_defaults_to_multilingual_british_voice() -> None:
+def test_voice_agent_defaults_to_native_multilingual_voice() -> None:
     field = config.Settings.model_fields["azure_voice_agent_voice"]
-    assert field.default == "en-GB-OllieMultilingualNeural"
+    assert field.default == "marin"
 
 
 def test_build_upstream_url_unconfigured() -> None:
@@ -153,6 +159,85 @@ def test_session_descriptor_disabled_by_default() -> None:
     assert desc["enabled"] is False
     assert desc["ws_path"] is None
     assert desc["duplex_enabled"] is False
+
+
+def test_stop_during_tool_does_not_restart_speech(monkeypatch: pytest.MonkeyPatch) -> None:
+    _reload_settings(
+        monkeypatch,
+        AZURE_AI_PROJECT_ENDPOINT="https://foundry.services.ai.azure.com/api/projects/project",
+        AZURE_VOICE_AGENT_NAME="noc",
+    )
+    sent = []
+
+    async def run():
+        tool_started, cancel_sent = asyncio.Event(), asyncio.Event()
+
+        class Credential:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return None
+
+            async def get_token(self, scope):
+                return SimpleNamespace(token="test-token")
+
+        class Upstream:
+            async def send(self, text):
+                event = json.loads(text)
+                sent.append(event)
+                if event["type"] == "response.cancel":
+                    cancel_sent.set()
+
+            async def close(self):
+                pass
+
+            def __aiter__(self):
+                return self.events()
+
+            async def events(self):
+                yield json.dumps({
+                    "type": "response.function_call_arguments.done",
+                    "call_id": "call", "name": "lookup_node", "arguments": "{}",
+                })
+                yield json.dumps({
+                    "type": "response.done", "response": {"id": "r1", "status": "completed"},
+                })
+
+        class Client:
+            first = True
+
+            async def receive(self):
+                if self.first:
+                    self.first = False
+                    await tool_started.wait()
+                    return {"type": "websocket.receive", "text": json.dumps({
+                        "type": "response.cancel", "response_id": "r1",
+                    })}
+                await asyncio.sleep(60)
+
+            async def send_text(self, text):
+                pass
+
+            async def close(self, **kwargs):
+                pass
+
+        async def connect(*args, **kwargs):
+            return Upstream()
+
+        async def dispatch(*args):
+            tool_started.set()
+            await cancel_sent.wait()
+            return "{}"
+
+        monkeypatch.setattr("fibreops.voice_live.DefaultAzureCredential", Credential)
+        monkeypatch.setattr("fibreops.voice_live.dispatch_tool", dispatch)
+        monkeypatch.setattr("websockets.connect", connect)
+        await asyncio.wait_for(proxy_session(Client()), timeout=5)
+
+    asyncio.run(run())
+    assert any(event["type"] == "conversation.item.create" for event in sent)
+    assert not any(event["type"] == "response.create" for event in sent)
 
 
 def test_session_descriptor_enabled_for_published_agent(monkeypatch: pytest.MonkeyPatch) -> None:

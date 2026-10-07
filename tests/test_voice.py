@@ -38,10 +38,8 @@ def test_speak_status_update_writes_to_outbox_by_default(chdir_state_tmp: Path) 
     assert "FN-LDN-001" in payload["text"]
     assert "London" in payload["text"]
     assert "8,200" in payload["text"]
-    # SSML envelope is well-formed and uses a critical voice.
-    assert payload["ssml"].startswith("<speak")
-    assert payload["voice"] == "en-GB-OllieMultilingualNeural"
-    assert "<mstts:express-as" in payload["ssml"]
+    assert payload["ssml"] is None
+    assert payload["voice"] == "marin"
     assert out["delivery"]["status"] == "logged-locally"
 
 
@@ -83,6 +81,7 @@ def test_speak_status_update_uses_outbox_even_with_voice_agent(
     )
 
     assert out["voice"] == "en-GB-SoniaNeural"
+    assert out["ssml"].startswith("<speak")
     assert out["delivery"]["status"] == "logged-locally"
     assert len(_voice_path(chdir_state_tmp / "state").read_text(encoding="utf-8").splitlines()) == 1
 

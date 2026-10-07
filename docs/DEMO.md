@@ -287,7 +287,7 @@ Suggested narration overlay:
 - **Act 3 (Teams)** — point at the *Teams card preview* pane (auto-polled
   every 5 s) — the same Adaptive Card payload that landed in the channel.
 - **Act 3b (Foundry Voice Agent Preview)** — click **🔊 Speak status**. The *Voice updates*
-  pane shows the SSML utterance the on-call operator would hear, with the
+  pane shows the recorded announcement text the on-call operator would hear, with the
   voice and severity styling that matches the incident. When
   `AZURE_VOICE_AGENT_NAME` is configured after publishing a distinct
   `kind: voice` agent, the browser opens a Foundry realtime voice session
@@ -297,8 +297,31 @@ Suggested narration overlay:
   Preview and click **🎙️ Talk to agent**. The browser captures your microphone,
   streams PCM16/24 kHz audio through `/ws/voice` to the Foundry project
   voice-agent protocol, and plays the reply. Entra authentication stays
-  server-side. Click **🛑 Stop talking** to end the session. This preview
+  server-side. **Stop response** cancels the current reply and queued playback
+  while keeping the microphone available. Click **🛑 Stop talking** to end the session. This preview
   does not have a production SLA.
+- **Voice acceptance (off-stage)** — run the real-audio and SDK evaluation commands
+  in the README. The latest portal's **Evaluations > Runs** uses the new evaluation
+  API; a legacy SDK upload alone is not visible there. The native candidate
+  defaults to English, with Polish/Arabic only on an explicit current-turn request.
+  Inspect `session.updated` before claiming the deployed agent uses that policy.
+  Web-app deployment does not promote a candidate or waive fluency/listening gates.
+- **Recorded evaluation demo (2026-10-07)** — production `fibreops-noc-voice`
+  version **4** contains the unchanged definition from candidate version **7**,
+  using native `marin` speech. The temporary candidate agent was removed after
+  rollout; its v6 and v7 evaluation runs remain available for comparison.
+  Both runs passed language selection, semantic accuracy, natural wording,
+  transcription and coherence on all 32 replies. Fluency at 4/5 or above fell
+  from **22/32 to 14/32** after the wording change: this is a measured regression,
+  not an improvement. The latest fluency pass counts are English **11/22**,
+  Polish **1/6**, and Arabic **2/4**. Show the failed rows and their explanations
+  in Foundry rather than describing a completed run as a passed quality gate.
+  This rollout has an explicit demo exception; native-speaker audio approval
+  remains outstanding. Version numbers are per agent, so production v4 and
+  candidate v7 identify the same tested definition, not different model ages.
+- **Architecture (optional)** — open [the documentation-only walkthrough](services-architecture.html).
+  Play or step through the incident and voice/evaluation workflows. It sends no
+  service requests and is not a live trace viewer.
 - **Act 4 (optimiser)** — click **Run optimiser**. The middle column shows
   the average score, per-criterion bars, and improvement suggestions.
 - **Act 5 (autonomy)** — toggle **Start simulation**. New incidents stream
@@ -329,8 +352,8 @@ can flip between terminal and browser freely and they always agree.
 | Hosted agent (container) | `serve-hosted` locally, `deploy-hosted` to Foundry | Containerised hosted agent in Foundry Agent Service |
 | NetOps coordinator    | Optional Foundry **Routine** (`FIBREOPS_NETOPS_ROUTINE=1`) | Hosted Routine (when SDK exposes it) |
 | Function tools        | Real Python in-process | Identical                                      |
-| Ticketing             | FastAPI mock D365      | Dataverse v9.2 (change `D365_MOCK_BASE_URL`)   |
+| Ticketing             | FastAPI mock D365      | Requires Dataverse authentication, permissions and schema mapping |
 | Teams                 | Configured webhook or local outbox | Verify delivery and operational permissions |
-| Voice                 | SSML outbox (`state/voice_outbox.jsonl`) | **Foundry Voice Agent Preview** (`AZURE_VOICE_AGENT_NAME`) |
-| Evaluation            | Local rubric + JSONL   | + Foundry Evals (`FoundryEvals` is in the SDK) |
+| Voice                 | Text outbox; native voices have no SSML | Published **Foundry Voice Agent Preview**, pinned version |
+| Evaluation            | Local run rubric; separate real-audio voice suite | Evaluation SDK scores and latest Foundry portal acceptance gates |
 | Tracing               | OpenTelemetry → Application Insights | Identical                                |

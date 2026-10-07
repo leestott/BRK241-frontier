@@ -230,7 +230,7 @@ def main() -> Path:
           ("FastAPI Dataverse-shaped REST", F_SMALL, MUTED)], TEAL)
     chip(d, (980, 340, 1310, 398),
          [("Foundry Voice Agent (Preview)", F_BODY_B, INK),
-          ("duplex audio via NOC WebSocket proxy", F_SMALL, MUTED)], PURPLE)
+          ("on demand via NOC WebSocket proxy", F_SMALL, MUTED)], PURPLE)
     chip(d, (980, 410, 1310, 468),
          [("GitHub Copilot SDK adapter", F_BODY_B, INK),
           ("chat over the same orchestrator", F_SMALL, MUTED)], INK)
@@ -253,7 +253,7 @@ def main() -> Path:
          [("Rubric-based evaluation", F_BODY_B, INK),
           ("scores every run", F_BODY, MUTED),
           ("→ improvement suggestions", F_SMALL, MUTED),
-          ("(FoundryEvals-ready)", F_SMALL, MUTED)], GREEN, fill="#eef7ee")
+          ("Voice SDK gates are a separate workflow", F_SMALL, MUTED)], GREEN, fill="#eef7ee")
 
     # ---- TOOLS & KNOWLEDGE (bottom band) ---------------------------------
     tools = (400, 600, 1330, 800)
@@ -302,9 +302,14 @@ def main() -> Path:
     # ======================= ARROWS =======================================
     arrow(d, (320, 320), (400, 330), AZURE, label="signals")
     # orchestrator agents -> integrations
-    arrow(d, (880, 300), (960, 229), AZURE, label="Teams", label_off=(0, -16))
+    arrow(d, (880, 340), (960, 229), AZURE, label="Teams", label_off=(0, -16))
     arrow(d, (880, 361), (960, 299), TEAL, label="ticket", label_off=(0, 4))
-    arrow(d, (880, 431), (960, 369), PURPLE, label="status", label_off=(0, 6))
+    poly_arrow(d, [(1330, 940), (1350, 940), (1350, 369), (1310, 369)], PURPLE,
+               dashed=True, label="on-demand audio", label_at=(1510, 670))
+    d.text((1375, 715), "Dispatch is conditional.", font=F_BODY_B, fill=INK)
+    d.text((1375, 745), "Voice: pinned agent version.", font=F_SMALL, fill=MUTED)
+    d.text((1375, 773), "SDK voice gates + human listening", font=F_SMALL, fill=MUTED)
+    d.text((1375, 797), "must precede candidate promotion.", font=F_SMALL, fill=MUTED)
     # orchestrator <-> tools
     arrow(d, (620, 540), (620, 600), PURPLE, label="invoke tools", label_off=(78, -10))
     arrow(d, (740, 600), (740, 540), PURPLE)
