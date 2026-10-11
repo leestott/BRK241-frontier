@@ -1,0 +1,5 @@
+defaultEnvironment: azd
+environments:
+  azd:
+    azd:
+      service: fibreops-noc

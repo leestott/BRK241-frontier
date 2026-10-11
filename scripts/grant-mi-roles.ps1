@@ -89,6 +89,7 @@ $keyVault    = az resource list -g $ResourceGroup --resource-type Microsoft.KeyV
 $registry    = az resource list -g $ResourceGroup --resource-type Microsoft.ContainerRegistry/registries --query "[0].id" -o tsv
 $voiceLive   = $env:AZURE_VOICE_LIVE_ACCOUNT_ID
 $searchSvc   = az resource list -g $ResourceGroup --resource-type Microsoft.Search/searchServices --query "[0].id" -o tsv
+$logAnalytics = $env:AZURE_LOG_ANALYTICS_WORKSPACE_ID
 $foundry     = if ($FoundryAccountName) { az cognitiveservices account show -g $FoundryResourceGroup -n $FoundryAccountName --query id -o tsv } else { "" }
 
 $grants = @(
@@ -103,17 +104,19 @@ if ($searchSvc) {
     $grants += @{ Role = "Search Index Data Reader"; Scope = $searchSvc; Desc = "retrieve from the Foundry IQ knowledge base" }
 }
 if ($foundry) {
-    $grants += @{ Role = "Azure AI Developer";             Scope = $foundry; Desc = "invoke hosted Prompt Agents in Foundry Agent Service" }
-    $grants += @{ Role = "Cognitive Services OpenAI User"; Scope = $foundry; Desc = "call the underlying model deployment" }
-    if ($env:FIBREOPS_PUBLISH_VOICE -eq 'true' -and $FoundryProjectName) {
-        $grants += @{ Role = "Foundry User"; Scope = "$foundry/projects/$FoundryProjectName"; Desc = "invoke the Foundry voice agent" }
+    if (-not $FoundryProjectName -and $env:AZURE_AI_PROJECT_ENDPOINT -match "/projects/([^/?]+)") {
+        $FoundryProjectName = $matches[1]
     }
+    if ($FoundryProjectName) {
+        $grants += @{ Role = "Foundry User"; Scope = "$foundry/projects/$FoundryProjectName"; Desc = "invoke agents through the project Responses and Voice APIs" }
+    }
+    $grants += @{ Role = "Cognitive Services OpenAI User"; Scope = $foundry; Desc = "call the underlying model deployment" }
 }
 
 foreach ($g in $grants) {
     Write-Host "Granting [$($g.Role)] -> $($g.Desc)" -ForegroundColor Cyan
     Write-Host "  scope: $($g.Scope)" -ForegroundColor DarkGray
-    $existing = az role assignment list --assignee-object-id $principalId --assignee-principal-type ServicePrincipal --scope $g.Scope --role $g.Role --query "[0].id" -o tsv 2>$null
+    $existing = az role assignment list --assignee-object-id $principalId --scope $g.Scope --role $g.Role --query "[0].id" -o tsv 2>$null
     if ($existing) {
         Write-Host "  already granted -> $existing" -ForegroundColor Yellow
         continue
@@ -130,7 +133,6 @@ foreach ($g in $grants) {
         Write-Host "  OK" -ForegroundColor Green
     }
 }
-
 # Foundry IQ: the knowledge base MCP endpoint is reached over RBAC, so the
 # search service must accept Entra tokens (not API key only) or agents get 403.
 if ($searchSvc) {
@@ -144,15 +146,15 @@ if ($searchSvc) {
 # --- Hosted agent (containerised) image pulls ---
 # A Foundry **hosted agent** runs your container in a per-session sandbox; the
 # platform pulls the image using the Foundry project's managed identity, which
-# needs AcrPull (Container Registry Repository Reader) on the registry. Grant it
+# needs Container Registry Repository Reader on the registry. Grant it
 # here so `python -m fibreops.demo deploy-hosted` can reach the image.
 if ($foundry -and $registry) {
     Write-Host ""
-    Write-Host "Granting Foundry project MI AcrPull on the registry (hosted-agent image pulls)..." -ForegroundColor Cyan
+    Write-Host "Granting Foundry project MI model and registry access..." -ForegroundColor Cyan
     # IMPORTANT: the platform pulls the hosted-agent image using the Foundry
     # *project's* managed identity -- which is a DIFFERENT principal from the
-    # account's identity. Granting AcrPull to the account MI does NOT fix the
-    # ImageError; the grant must target the project MI. Resolve the project name
+    # account's identity. Granting a registry role to the account MI does NOT fix
+    # the ImageError; the grant must target the project MI. Resolve the project name
     # in priority order: explicit -FoundryProjectName, the /projects/<name>
     # segment of AZURE_AI_PROJECT_ENDPOINT, then discover it via ARM (use the
     # only project under the account, if unambiguous).
@@ -187,7 +189,17 @@ if ($foundry -and $registry) {
         throw "Foundry project has no system-assigned identity for hosted-agent image pulls."
     }
     else {
-        $existing = az role assignment list --assignee-object-id $foundryPrincipalId --assignee-principal-type ServicePrincipal --scope $registry --role "AcrPull" --query "[0].id" -o tsv 2>$null
+        $existingFoundry = az role assignment list --assignee-object-id $foundryPrincipalId --scope $foundry --role "Foundry User" --query "[0].id" -o tsv 2>$null
+        if ($existingFoundry) {
+            Write-Host "  project MI already has Foundry User on the account." -ForegroundColor Yellow
+        }
+        else {
+            az role assignment create --assignee-object-id $foundryPrincipalId --assignee-principal-type ServicePrincipal --role "Foundry User" --scope $foundry | Out-Null
+            if ($LASTEXITCODE -ne 0) { $grantFailures++ }
+            Write-Host ($LASTEXITCODE -eq 0 ? "  project MI granted Foundry User." : "  FAILED to grant project MI Foundry User.") -ForegroundColor ($LASTEXITCODE -eq 0 ? "Green" : "Red")
+        }
+        $registryPullRole = "Container Registry Repository Reader"
+        $existing = az role assignment list --assignee-object-id $foundryPrincipalId --scope $registry --role $registryPullRole --query "[0].id" -o tsv 2>$null
         if ($existing) {
             Write-Host "  already granted -> $existing" -ForegroundColor Yellow
         }
@@ -195,13 +207,13 @@ if ($foundry -and $registry) {
             az role assignment create `
                 --assignee-object-id $foundryPrincipalId `
                 --assignee-principal-type ServicePrincipal `
-                --role "AcrPull" `
+                --role $registryPullRole `
                 --scope $registry | Out-Null
             if ($LASTEXITCODE -ne 0) {
                 $grantFailures++
                 Write-Host "  FAILED (need Microsoft.Authorization/roleAssignments/write on the registry)" -ForegroundColor Red
                 # Delegated 'Foundry Owner' has an ABAC condition that only permits
-                # assigning a fixed allow-list of Foundry/AI roles -- AcrPull is NOT
+                # assigning a fixed allow-list of Foundry/AI roles -- the registry role is NOT
                 # on it, so a normal project owner cannot grant this. Emit a ready-to-
                 # paste command for an admin (Owner / User Access Administrator) to run.
                 Write-Host "  -> Ask an admin (Owner / User Access Administrator) to run:" -ForegroundColor Yellow
@@ -209,7 +221,7 @@ if ($foundry -and $registry) {
                 Write-Host "     az role assignment create ``" -ForegroundColor White
                 Write-Host "       --assignee-object-id $foundryPrincipalId ``" -ForegroundColor White
                 Write-Host "       --assignee-principal-type ServicePrincipal ``" -ForegroundColor White
-                Write-Host "       --role AcrPull ``" -ForegroundColor White
+                Write-Host "       --role '$registryPullRole' ``" -ForegroundColor White
                 Write-Host "       --scope $registry" -ForegroundColor White
                 Write-Host ""
             } else {
@@ -219,7 +231,7 @@ if ($foundry -and $registry) {
         # Foundry IQ: the project MI also retrieves from the knowledge base when
         # the hosted agent reaches it through an MCP toolbox connection.
         if ($searchSvc) {
-            $existsSearch = az role assignment list --assignee-object-id $foundryPrincipalId --assignee-principal-type ServicePrincipal --scope $searchSvc --role "Search Index Data Reader" --query "[0].id" -o tsv 2>$null
+            $existsSearch = az role assignment list --assignee-object-id $foundryPrincipalId --scope $searchSvc --role "Search Index Data Reader" --query "[0].id" -o tsv 2>$null
             if ($existsSearch) {
                 Write-Host "  project MI already has Search Index Data Reader." -ForegroundColor Yellow
             }
@@ -229,11 +241,22 @@ if ($foundry -and $registry) {
                 Write-Host ($LASTEXITCODE -eq 0 ? "  project MI granted Search Index Data Reader." : "  FAILED to grant project MI Search Index Data Reader.") -ForegroundColor ($LASTEXITCODE -eq 0 ? "Green" : "Red")
             }
         }
+        if ($logAnalytics) {
+            $existsLogs = az role assignment list --assignee-object-id $foundryPrincipalId --scope $logAnalytics --role "Log Analytics Data Reader" --query "[0].id" -o tsv 2>$null
+            if ($existsLogs) {
+                Write-Host "  project MI already has Log Analytics Data Reader." -ForegroundColor Yellow
+            }
+            else {
+                az role assignment create --assignee-object-id $foundryPrincipalId --assignee-principal-type ServicePrincipal --role "Log Analytics Data Reader" --scope $logAnalytics | Out-Null
+                if ($LASTEXITCODE -ne 0) { $grantFailures++ }
+                Write-Host ($LASTEXITCODE -eq 0 ? "  project MI granted Log Analytics Data Reader." : "  FAILED to grant project MI Log Analytics Data Reader.") -ForegroundColor ($LASTEXITCODE -eq 0 ? "Green" : "Red")
+            }
+        }
     }
-    Write-Host "  NOTE: the user running 'deploy-hosted' also needs 'Azure AI Project Manager' at project scope." -ForegroundColor DarkGray
+    Write-Host "  NOTE: the user running 'deploy-hosted' also needs 'Foundry Project Manager' at project scope." -ForegroundColor DarkGray
 
     # Foundry MI pulls require the registry to accept ARM-issued (RBAC) tokens.
-    # Enable the ARM-auth policy here so the project MI's AcrPull actually works.
+    # Enable the ARM-auth policy so the project MI's repository-reader role works.
     $armAuth = az acr config authentication-as-arm show --registry ($registry -split "/")[-1] --query "status" -o tsv 2>$null
     if ($armAuth -eq "enabled") {
         Write-Host "  registry ARM-auth policy already enabled." -ForegroundColor DarkGray
@@ -250,11 +273,23 @@ if ($foundry -and $registry) {
     }
 }
 
-Write-Host ""
-Write-Host "Once all four grants are green, you can:" -ForegroundColor Cyan
-Write-Host "  1. Wire AcrPull on the App Service:" -ForegroundColor Cyan
-Write-Host "       az webapp config set -g $ResourceGroup -n $AppServiceName --generic-configurations '{\"acrUseManagedIdentityCreds\": true}'"
-Write-Host "  2. Disable ACR admin user:  az acr update -n <acr-name> --admin-enabled false" -ForegroundColor Cyan
-Write-Host "  3. Restart the App Service to pick up the new permissions:" -ForegroundColor Cyan
-Write-Host "       az webapp restart -g $ResourceGroup -n $AppServiceName"
 if ($grantFailures) { throw "$grantFailures required managed-identity grants or registry settings failed." }
+
+if ($registry) {
+    $registryName = ($registry -split "/")[-1]
+    Write-Host ""
+    Write-Host "Hardening App Service registry access with managed identity..." -ForegroundColor Cyan
+    $appServiceId = az webapp show -g $ResourceGroup -n $AppServiceName --query id -o tsv
+    az resource update --ids $appServiceId --set properties.siteConfig.acrUseManagedIdentityCreds=true --output none
+    if ($LASTEXITCODE -ne 0) { throw "Unable to enable managed-identity ACR pulls on $AppServiceName." }
+    az webapp config appsettings delete -g $ResourceGroup -n $AppServiceName `
+        --setting-names DOCKER_REGISTRY_SERVER_URL DOCKER_REGISTRY_SERVER_USERNAME DOCKER_REGISTRY_SERVER_PASSWORD --output none
+    if ($LASTEXITCODE -ne 0) { throw "Unable to remove registry credentials from $AppServiceName." }
+    az acr update -n $registryName --admin-enabled false --output none
+    if ($LASTEXITCODE -ne 0) { throw "Unable to disable the ACR admin account on $registryName." }
+    if ($env:AZURE_ENV_NAME) {
+        azd env set FIBREOPS_HARDEN_REGISTRY true --environment $env:AZURE_ENV_NAME | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Unable to persist FIBREOPS_HARDEN_REGISTRY=true in AZD." }
+    }
+    Write-Host "  Managed-identity image pulls enabled; ACR admin credentials removed." -ForegroundColor Green
+}

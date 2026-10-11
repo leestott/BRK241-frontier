@@ -390,6 +390,7 @@ python -m scripts.validate_voice_audio `
   --project-endpoint $env:AZURE_AI_PROJECT_ENDPOINT `
   --agent <your-separate-candidate-agent> --version <candidate-version> `
   --speech-endpoint $env:AZURE_VOICE_LIVE_ENDPOINT `
+  --speech-resource-id $env:AZURE_VOICE_LIVE_ACCOUNT_ID `
   --judge-endpoint <Foundry-cognitive-services-endpoint> `
   --output-dir state\voice-audio-evaluation --repeats 3
 ```
@@ -401,6 +402,10 @@ inputs**, not for the production agent's replies. Text judging and non-silent
 waveforms do not certify accents: the report explicitly leaves
 `human_listening_approved` false. Review the saved audio with a native speaker
 before accepting production-quality Polish or Arabic.
+
+If the Speech REST endpoint rejects Microsoft Entra authorization, set
+`AZURE_VOICE_LIVE_API_KEY` only in the current process. The runner exchanges it
+for a short-lived Speech STS token; it does not write or print the key.
 
 ### Azure AI Evaluation SDK and Foundry results
 
@@ -704,8 +709,8 @@ Follow the steps below in order. Commands are PowerShell 7+ on Windows; the same
 
 - **Azure CLI** (`az`) and **Azure Developer CLI** (`azd` ≥ 1.10)
 - **PowerShell 7+** (`pwsh`) — required by the deploy scripts
-- `gpt-5.4-mini` Global Standard quota in the chosen region (the Bicep
-  deployment reserves 200 capacity units / 200,000 tokens per minute)
+- Quota for the selected Foundry model/SKU/capacity. Defaults are
+  `gpt-5.4-mini`, `GlobalStandard`, and 200 capacity units.
 - Permission to create a **single-tenant Microsoft Entra app registration**
   and assign the web app managed identity Key Vault access
 - **Docker is NOT required** — images build in ACR
@@ -727,39 +732,59 @@ python -m venv .venv
 ### Step 3 — Sign in and create an azd environment
 
 ```powershell
-az login
-azd auth login
+az login --tenant <tenant-id>
+az account set --subscription <subscription-id>
+azd auth login --tenant-id <tenant-id>
 azd env new fibreops-demo
 ```
 
 ### Step 4 — Configure the deployment
 
 ```powershell
-# The Bicep deployment creates the Foundry project and sets its endpoint.
-# Set an endpoint only if intentionally using an external, existing project.
+azd env set AZURE_TENANT_ID            "<tenant-id>"
+azd env set AZURE_SUBSCRIPTION_ID      "<subscription-id>"
+azd env set AZURE_LOCATION             "northcentralus"
+azd env set AZURE_SEARCH_LOCATION      "northcentralus"
+azd env set AZURE_VOICE_LIVE_LOCATION  "eastus2"
+
+# All names and model settings are overridable. Empty Foundry names are
+# deterministically derived from the prefix.
+azd env set FIBREOPS_NAME_PREFIX       "fibreops"
 azd env set AZURE_AI_MODEL_DEPLOYMENT  "gpt-5.4-mini"
-azd env set AZURE_LOCATION             "swedencentral"   # any App Service + ACR region
+azd env set AZURE_AI_MODEL_NAME        "gpt-5.4-mini"
+azd env set AZURE_AI_MODEL_VERSION     "2026-03-17"
+azd env set AZURE_AI_MODEL_SKU         "GlobalStandard"
+azd env set AZURE_AI_MODEL_CAPACITY    "200"
+azd env set FIBREOPS_HOSTED_AGENT_NAME "fibreops-outage-response"
 
 # Optional: also deploy the containerised hosted agent during azd up
 azd env set FIBREOPS_DEPLOY_HOSTED     true
 ```
 
-The web app requires Microsoft Entra sign-in. Create a single-tenant app
-registration, then save its client ID and a short-lived credential only in the
-ignored AZD environment (never in `azure.yaml` or `.env.example`):
+Run the identity preflight before creating anything. It stops on Azure
+CLI/AZD tenant or subscription drift and probes Foundry access when a project
+already exists:
 
 ```powershell
-$appId = az ad app create --display-name "FibreOps NOC Demo" `
-  --sign-in-audience AzureADMyOrg --query appId -o tsv
-# App Service Authentication requests code+id_token; the registration must
-# permit ID-token issuance for that hybrid sign-in response.
-az ad app update --id $appId --enable-id-token-issuance true
-azd env set FIBREOPS_AAD_CLIENT_ID $appId
-azd env set FIBREOPS_ALLOWED_USER_OBJECT_ID (az ad signed-in-user show --query id -o tsv)
-$credential = az ad app credential reset --id $appId --append --years 1 -o json |
-  ConvertFrom-Json
-azd env set FIBREOPS_AAD_CLIENT_SECRET $credential.password
-$credential.password = $null
+pwsh scripts/preflight.ps1 `
+  -ExpectedTenantId "<tenant-id>" `
+  -ExpectedSubscriptionId "<subscription-id>" `
+  -ExpectedUser "<user-principal-name>" `
+  -Environment "fibreops-demo" `
+  -SkipFoundryProbe
+```
+
+The web app requires Microsoft Entra sign-in. The bootstrap is idempotent and
+tenant-aware: it reuses only the app ID recorded in the selected AZD
+environment, preserves an existing credential, and stores any new credential
+only in ignored AZD state:
+
+```powershell
+pwsh scripts/bootstrap-entra.ps1 `
+  -ExpectedTenantId "<tenant-id>" `
+  -ExpectedSubscriptionId "<subscription-id>" `
+  -Environment "fibreops-demo" `
+  -DisplayName "FibreOps NOC"
 ```
 
 The Bicep deployment stores the credential in Key Vault, references it from
@@ -784,13 +809,31 @@ printed at the end. Hook toggles: `FIBREOPS_SKIP_PUBLISH=true` skips the Prompt
 Agent publish (e.g. when using `FIBREOPS_AGENT_BACKEND=foundry`/`local`).
 The hook fails `azd up` if a required grant, publication, or enabled hosted
 agent deployment fails; inspect the error before calling the rollout complete.
-Add the new site's callback URL to the Entra registration before signing in:
+Rerun the idempotent Entra bootstrap after the first provision so it adds the
+new site's callback URL:
 
 ```powershell
-$appId = azd env get-value FIBREOPS_AAD_CLIENT_ID
-$hostname = azd env get-value AZURE_APP_SERVICE_HOSTNAME
-az ad app update --id $appId --web-redirect-uris "https://$hostname/.auth/login/aad/callback"
+pwsh scripts/bootstrap-entra.ps1 `
+  -ExpectedTenantId "<tenant-id>" `
+  -ExpectedSubscriptionId "<subscription-id>" `
+  -Environment "fibreops-demo"
 ```
+
+The postdeploy hook is resumable. Select stages with
+`FIBREOPS_DEPLOY_PHASES=rbac,iq,prompt,hosted,voice,sync`; set
+`FIBREOPS_RESUME_DEPLOYMENT=true` to skip stages recorded as complete in the
+ignored `.azure/<environment>/postdeploy-state.json`. Re-run a changed stage
+without resume mode. The `sync` stage updates only an allowlist of non-secret
+deployment-owned values in `.env`, preserving local webhooks, keys, and other
+overrides. It can also be run directly:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/deployment_config.py sync-env `
+  --environment fibreops-demo --destination .env
+```
+
+`azure.yaml` and AZD remain the deployment source of truth.
+`.foundry/agent-metadata.yaml` is only the Foundry tooling overlay.
 
 ### Step 6 — Confirm the managed-identity roles
 
@@ -813,17 +856,17 @@ The script grants the App Service's system-assigned managed identity:
 |-------------------------------|----------------------|----------------------------------------------|
 | `Azure Event Hubs Data Owner` | Event Hubs namespace | Publish + consume `fibre-signals`            |
 | `Key Vault Secrets User`      | Key Vault            | Read the optional legacy Voice Live key and other secrets |
-| `AcrPull`                     | Container Registry   | Pull image with MI instead of admin creds    |
+| `AcrPull`                     | Container Registry   | App Service pulls its web image with MI      |
 | `Cognitive Services User`     | Optional legacy Voice Live account | Legacy integration role; the preview voice agent instead uses the Foundry project |
 | `Search Index Data Reader`    | Azure AI Search      | Retrieve from the Foundry IQ knowledge base  |
-| `Azure AI Developer`          | Foundry account      | Invoke hosted Prompt Agents + manage threads |
+| `Foundry User`                | Foundry project      | Invoke agents through the project Responses and Voice APIs |
 | `Cognitive Services OpenAI User` | Foundry account   | Call the chat-completions deployment from the agent runtime |
 
-It also grants the **Foundry project** managed identity `AcrPull` on the ACR
-(so a containerised hosted agent can be pulled), `Search Index Data Reader` on
-the search service (knowledge base retrieval), and enables the registry's
+It also grants the **Foundry project** managed identity `Foundry User` on the
+Foundry account, `Container Registry Repository Reader` on the ACR,
+`Search Index Data Reader` on the search service, and enables the registry's
 ARM-auth policy. Deploying a hosted agent additionally requires the deploying
-user to hold *Azure AI Project Manager* at project scope.
+user to hold *Foundry Project Manager* at project scope.
 
 For the **complete** matrix of every identity, role, and scope across the
 solution, see [Required permissions (RBAC)](#required-permissions-rbac) below.
@@ -844,16 +887,18 @@ and click **Inject signal**. Confirm an incident appears before using
 **Start simulation** to stream further runs through the pipeline. An
 unauthenticated POST to `/actions/inject` returns 401.
 
-### Step 8 (optional) — Harden registry access
+### Step 8 — Confirm registry hardening
 
-Switch the App Service to pull via managed identity and disable the ACR admin
-user:
+The RBAC phase switches App Service to managed-identity ACR pulls, removes the
+registry credentials from App Service, disables the ACR admin account, and
+persists `FIBREOPS_HARDEN_REGISTRY=true` in AZD so later Bicep deployments do
+not revert the change. Confirm it:
 
 ```powershell
-az webapp config set -g <resource-group> -n <webapp-name> `
-  --generic-configurations '{"acrUseManagedIdentityCreds": true}'
-az acr update -n <acr-name> --admin-enabled false
-az webapp restart -g <resource-group> -n <webapp-name>
+az webapp config show -g <resource-group> -n <webapp-name> `
+  --query acrUseManagedIdentityCreds
+az acr show -g <resource-group> -n <acr-name> --query adminUserEnabled
+azd env get-value FIBREOPS_HARDEN_REGISTRY
 ```
 
 > **ABAC tip** — if your Foundry tenant scopes `Owner` with an ABAC condition
@@ -874,7 +919,7 @@ identity** roles are granted by `scripts/grant-mi-roles.ps1` and used at runtime
 |------|-------|-----|
 | `Contributor` | Subscription / resource group | Provision all resources via `azd up` / Bicep |
 | `Owner` **or** `User Access Administrator` | Resource group (+ Foundry account) | Create the role assignments in `grant-mi-roles.ps1` |
-| `Azure AI Project Manager` | Foundry **project** | Publish Prompt Agents + deploy the hosted agent |
+| `Foundry Project Manager` | Foundry **project** | Publish Prompt Agents + deploy the hosted agent |
 | `Search Service Contributor` | Azure AI Search | Create the index / knowledge source / knowledge base (only if provisioning Foundry IQ with Entra auth instead of the admin key) |
 | `Search Index Data Contributor` | Azure AI Search | Upload documents to the index (Entra-auth provisioning) |
 
@@ -887,15 +932,17 @@ identity** roles are granted by `scripts/grant-mi-roles.ps1` and used at runtime
 | `AcrPull` | Container Registry | Pull the NOC image via MI (after hardening) |
 | `Cognitive Services User` | Optional legacy Voice Live (AI Services) account | Legacy integration role; not needed to invoke the Foundry voice agent |
 | `Search Index Data Reader` | Azure AI Search | Retrieve from the Foundry IQ knowledge base |
-| `Azure AI Developer` | Foundry account | Invoke hosted Prompt Agents + manage threads |
+| `Foundry User` | Foundry project | Invoke agents through the project Responses and Voice APIs |
 | `Cognitive Services OpenAI User` | Foundry account | Call the chat-completions model deployment |
 
 ### Foundry project managed identity (runtime — hosted agents)
 
 | Role | Scope | Why |
 |------|-------|-----|
-| `AcrPull` | Container Registry | Pull the containerised hosted-agent image |
+| `Foundry User` | Foundry account | Use the model deployment from hosted agents |
+| `Container Registry Repository Reader` | Container Registry | Pull the containerised hosted-agent image |
 | `Search Index Data Reader` | Azure AI Search | Knowledge base retrieval via the MCP toolbox |
+| `Log Analytics Data Reader` | Log Analytics workspace | Read hosted-agent telemetry for evaluations |
 
 ### Azure AI Search managed identity
 
@@ -944,7 +991,7 @@ One script builds the image in ACR (no local Docker needed), pushes it, and
 registers the version:
 
 ```powershell
-# Grant the Foundry project MI AcrPull first (one-time, needs an Owner/UAA):
+# Grant the Foundry project MI model and registry access first:
 pwsh scripts/grant-mi-roles.ps1 `
   -ResourceGroup        <resource-group> `
   -FoundryAccountName   <your-foundry-account> `
@@ -1004,9 +1051,9 @@ only called on the first request):
 .\.venv\Scripts\python.exe -m fibreops.demo serve-hosted   # http://localhost:8088/responses
 ```
 
-> **Permissions** — deploying a hosted agent needs *Azure AI Project Manager*
+> **Permissions** — deploying a hosted agent needs *Foundry Project Manager*
 > at project scope; the Foundry project MI needs *Container Registry Repository
-> Reader* (`AcrPull`) on the ACR. The platform injects
+> Reader* on the ACR. The platform injects
 > `FOUNDRY_PROJECT_ENDPOINT`, `AZURE_AI_MODEL_DEPLOYMENT_NAME` is supplied via
 > `agent.yaml`'s `environment_variables` — do **not** hard-code `FOUNDRY_*`
 > values yourself.
@@ -1080,7 +1127,8 @@ read them from `azd env get-values`.
 
 **6. Hosted agent — version status ends in `FAILED` (image pull denied).**
 The agent version can't pull the image until the **Foundry _project_ managed
-identity** (not the account MI) has `AcrPull` on the ACR **and** the registry
+identity** (not the account MI) has `Container Registry Repository Reader` on
+the ACR **and** the registry
 has ARM-based auth enabled. `scripts/grant-mi-roles.ps1` may print
 `Could not derive project name … falling back to the account MI` — in that case
 grant the project MI explicitly:
@@ -1091,9 +1139,12 @@ az rest --method get `
   --url "https://management.azure.com/subscriptions/<sub>/resourceGroups/<foundry-rg>/providers/Microsoft.CognitiveServices/accounts/<foundry-account>/projects/<project>?api-version=2025-04-01-preview" `
   --query identity.principalId -o tsv
 
-# Grant it AcrPull on the ACR:
+# Grant it Foundry model access and repository-scoped image pull:
 az role assignment create --assignee-object-id <project-mi-principalId> `
-  --assignee-principal-type ServicePrincipal --role AcrPull `
+  --assignee-principal-type ServicePrincipal --role "Foundry User" `
+  --scope "/subscriptions/<sub>/resourceGroups/<foundry-rg>/providers/Microsoft.CognitiveServices/accounts/<foundry-account>"
+az role assignment create --assignee-object-id <project-mi-principalId> `
+  --assignee-principal-type ServicePrincipal --role "Container Registry Repository Reader" `
   --scope "/subscriptions/<sub>/resourceGroups/<fibreops-rg>/providers/Microsoft.ContainerRegistry/registries/<acr>"
 
 # Enable ARM-based auth on the registry (required for Foundry MI pulls):
@@ -1102,7 +1153,7 @@ az acr config authentication-as-arm update --registry <acr> --status enabled
 
 Allow 2–5 minutes for RBAC to propagate, then re-run `deploy-hosted`; it
 registers a **new version** that should reach `ACTIVE`. The deploying *user*
-also needs **Azure AI Project Manager** at project scope.
+also needs **Foundry Project Manager** at project scope.
 
 **7. `grant-mi-roles.ps1` — `pwsh` not recognised.**
 The script needs PowerShell 7+. If you're already in a `pwsh` session, invoke
@@ -1155,7 +1206,8 @@ $env:AZURE_AI_MODEL_DEPLOYMENT = "gpt-5.4-mini"
 .\.venv\Scripts\python.exe -m fibreops.demo publish     # creates the 3 Prompt Agents (version 1)
 ```
 
-The App Service managed identity also needs **Azure AI Developer** +
+The App Service managed identity also needs **Foundry User** on the project
+because the runtime calls the project Responses and Voice APIs, plus
 **Cognitive Services OpenAI User** on the Foundry account
 (`scripts/grant-mi-roles.ps1` grants these). Verify end-to-end by signing in
 to the NOC console and clicking **Inject signal**; an anonymous request to

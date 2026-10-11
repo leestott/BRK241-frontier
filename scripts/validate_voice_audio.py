@@ -11,6 +11,7 @@ import asyncio
 import base64
 import json
 import math
+import os
 import struct
 import wave
 from dataclasses import dataclass
@@ -100,6 +101,35 @@ def audio_metrics(pcm: bytes) -> dict[str, float]:
     samples = [sample[0] for sample in struct.iter_unpack("<h", pcm)]
     rms = math.sqrt(sum(sample * sample for sample in samples) / len(samples))
     return {"seconds": len(samples) / RATE, "rms": rms}
+
+
+def speech_authorization_token(resource_id: str, entra_token: str) -> str:
+    if not resource_id.startswith("/subscriptions/") or not entra_token:
+        raise ValueError("Speech resource ID and Microsoft Entra token are required")
+    return f"aad#{resource_id}#{entra_token}"
+
+
+async def resolve_speech_access_token(
+    client: httpx.AsyncClient,
+    endpoint: str,
+    resource_id: str,
+    entra_token: str,
+) -> str:
+    api_key = os.getenv("AZURE_VOICE_LIVE_API_KEY")
+    if not api_key:
+        return speech_authorization_token(resource_id, entra_token)
+    response = await client.post(
+        endpoint.rstrip("/") + "/sts/v1.0/issueToken",
+        headers={
+            "Ocp-Apim-Subscription-Key": api_key,
+            "Content-Length": "0",
+        },
+    )
+    response.raise_for_status()
+    token = response.text.strip()
+    if not token:
+        raise ValueError("Speech token exchange returned an empty token")
+    return token
 
 
 async def synthesize(client: httpx.AsyncClient, endpoint: str, token: str, case: Case) -> bytes:
@@ -245,7 +275,10 @@ async def validate(args: argparse.Namespace) -> None:
     }
     try:
         async with DefaultAzureCredential() as credential, httpx.AsyncClient(timeout=90) as client:
-            speech_token = (await credential.get_token("https://cognitiveservices.azure.com/.default")).token
+            entra_token = (await credential.get_token("https://cognitiveservices.azure.com/.default")).token
+            speech_token = await resolve_speech_access_token(
+                client, args.speech_endpoint, args.speech_resource_id, entra_token,
+            )
             fixtures = {}
             for case in CASES:
                 fixtures[case.name] = await synthesize(client, args.speech_endpoint, speech_token, case)
@@ -289,7 +322,7 @@ async def validate(args: argparse.Namespace) -> None:
                             "audio": wav_name, "audio_metrics": metrics, "assessment": assessment,
                         }
                         report["results"].append(row)
-                        print(json.dumps(row, ensure_ascii=False), flush=True)
+                        print(json.dumps(row), flush=True)
     finally:
         (args.output_dir / "report.json").write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8",
@@ -312,6 +345,7 @@ def main() -> None:
     parser.add_argument("--agent", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--speech-endpoint", required=True)
+    parser.add_argument("--speech-resource-id", required=True)
     parser.add_argument("--judge-endpoint", required=True)
     parser.add_argument("--judge-model", default="gpt-5.4-mini")
     parser.add_argument("--output-dir", type=Path, required=True)

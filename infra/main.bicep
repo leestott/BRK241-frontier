@@ -13,6 +13,15 @@ param namePrefix string = 'fbreops'
 @description('Azure region for deployment.')
 param location string = resourceGroup().location
 
+@description('Foundry account name. Empty derives a globally unique name from namePrefix.')
+param foundryAccountName string = ''
+
+@description('Foundry project name. Empty derives <namePrefix>-agents.')
+param foundryProjectName string = ''
+
+@description('Foundry project display name.')
+param foundryProjectDisplayName string = 'FibreOps agents'
+
 @description('Event Hubs SKU (Standard required for Microsoft Entra auth).')
 @allowed([ 'Basic', 'Standard', 'Premium' ])
 param eventHubSku string = 'Standard'
@@ -20,11 +29,27 @@ param eventHubSku string = 'Standard'
 @description('Container image reference (registry/repo:tag) for the FibreOps NOC service. AZD overrides this after the first build.')
 param containerImageName string = 'mcr.microsoft.com/k8se/quickstart:latest'
 
+@description('Use the App Service managed identity for ACR pulls and disable the ACR admin user. Enable after the first RBAC phase.')
+param hardenRegistry bool = false
+
 @description('Optional external Foundry project endpoint. Empty = use the project provisioned here.')
 param azureAiProjectEndpoint string = ''
 
 @description('Foundry model deployment name.')
 param azureAiModelDeployment string = 'gpt-5.4-mini'
+
+@description('Foundry catalog model name.')
+param azureAiModelName string = 'gpt-5.4-mini'
+
+@description('Foundry catalog model version.')
+param azureAiModelVersion string = '2026-03-17'
+
+@description('Foundry model deployment SKU.')
+param azureAiModelSku string = 'GlobalStandard'
+
+@description('Foundry model deployment capacity in thousands of tokens per minute.')
+@minValue(1)
+param azureAiModelCapacity int = 200
 
 @description('Published Foundry Voice Agent name. Empty until the preview agent is created.')
 param azureVoiceAgentName string = ''
@@ -48,6 +73,9 @@ param entraAllowedUserObjectId string
 @description('Agent backend resolution: auto | hosted | foundry | local')
 @allowed([ 'auto', 'hosted', 'foundry', 'local' ])
 param fibreopsAgentBackend string = 'hosted'
+
+@description('Containerised Foundry hosted-agent name.')
+param fibreopsHostedAgentName string = 'fibreops-outage-response'
 
 @description('Azure Voice Live realtime endpoint. Either an https://<region>.api.cognitive.microsoft.com host or a fully-formed wss:// URL. Empty = browser falls back to text-only outbox.')
 param azureVoiceLiveEndpoint string = ''
@@ -93,19 +121,21 @@ var planName = '${namePrefix}-plan-${suffix}'
 var webName = toLower('${namePrefix}-noc-${substring(suffix, 0, 6)}')
 var searchName = toLower('${namePrefix}-search-${substring(suffix, 0, 8)}')
 var voiceLiveAccountName = toLower('${namePrefix}-aisvc-${substring(suffix, 0, 6)}')
-var foundryAccountName = toLower('${namePrefix}-foundry-${substring(suffix, 0, 6)}')
-var foundryProjectName = '${namePrefix}-agents'
+var resolvedFoundryAccountName = empty(foundryAccountName)
+  ? toLower('${namePrefix}-foundry-${substring(suffix, 0, 6)}')
+  : foundryAccountName
+var resolvedFoundryProjectName = empty(foundryProjectName) ? '${namePrefix}-agents' : foundryProjectName
 var voiceLiveRegion = empty(voiceLiveLocation) ? location : voiceLiveLocation
 
 resource foundryAccount 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
-  name: foundryAccountName
+  name: resolvedFoundryAccountName
   location: location
   kind: 'AIServices'
   sku: { name: 'S0' }
   identity: { type: 'SystemAssigned' }
   properties: {
     allowProjectManagement: true
-    customSubDomainName: foundryAccountName
+    customSubDomainName: resolvedFoundryAccountName
     disableLocalAuth: true
     publicNetworkAccess: 'Enabled'
   }
@@ -113,32 +143,35 @@ resource foundryAccount 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
 
 resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-06-01' = {
   parent: foundryAccount
-  name: foundryProjectName
+  name: resolvedFoundryProjectName
   location: location
   identity: { type: 'SystemAssigned' }
   properties: {
-    displayName: 'FibreOps agents'
+    displayName: foundryProjectDisplayName
   }
 }
 
 resource foundryModel 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
   parent: foundryAccount
   name: azureAiModelDeployment
+  dependsOn: [
+    foundryProject
+  ]
   sku: {
-    name: 'GlobalStandard'
-    capacity: 200
+    name: azureAiModelSku
+    capacity: azureAiModelCapacity
   }
   properties: {
     model: {
       format: 'OpenAI'
-      name: 'gpt-5.4-mini'
-      version: '2026-03-17'
+      name: azureAiModelName
+      version: azureAiModelVersion
     }
   }
 }
 
 var resolvedProjectEndpoint = empty(azureAiProjectEndpoint)
-  ? 'https://${foundryAccountName}.services.ai.azure.com/api/projects/${foundryProjectName}'
+  ? 'https://${resolvedFoundryAccountName}.services.ai.azure.com/api/projects/${resolvedFoundryProjectName}'
   : azureAiProjectEndpoint
 
 resource law 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
@@ -247,9 +280,9 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' = {
   properties: {
     // Admin user is enabled because the deploying principal lacks
     // Microsoft.Authorization/roleAssignments/write and therefore cannot
-    // grant AcrPull to the Container App MI. The post-deploy script in
+    // grant AcrPull to the App Service MI. The post-deploy script in
     // scripts/grant-mi-roles.ps1 lets an admin tighten this later.
-    adminUserEnabled: true
+    adminUserEnabled: !hardenRegistry
     publicNetworkAccess: 'Enabled'
     anonymousPullEnabled: false
   }
@@ -311,18 +344,19 @@ resource web 'Microsoft.Web/sites@2024-04-01' = {
       webSocketsEnabled: true
       minTlsVersion: '1.2'
       healthCheckPath: '/healthz'
-      acrUseManagedIdentityCreds: false
-      appSettings: [
+      acrUseManagedIdentityCreds: hardenRegistry
+      appSettings: concat(hardenRegistry ? [] : [
         // Container registry pull credentials. ACR admin user is enabled
-        // because the deploying principal lacks roleAssignments/write so we
-        // cannot grant AcrPull to the site MI. scripts/grant-mi-roles.ps1
-        // lets an admin tighten this later.
+        // only for first deployment. The RBAC phase switches to MI and sets
+        // FIBREOPS_HARDEN_REGISTRY=true for later provisions.
         { name: 'DOCKER_REGISTRY_SERVER_URL', value: 'https://${acr.properties.loginServer}' }
         { name: 'DOCKER_REGISTRY_SERVER_USERNAME', value: acr.listCredentials().username }
         { name: 'DOCKER_REGISTRY_SERVER_PASSWORD', value: acr.listCredentials().passwords[0].value }
+      ], [
         { name: 'WEBSITES_PORT', value: '8800' }
         { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'false' }
         { name: 'FIBREOPS_AGENT_BACKEND', value: fibreopsAgentBackend }
+        { name: 'FIBREOPS_HOSTED_AGENT_NAME', value: fibreopsHostedAgentName }
         { name: 'AZURE_AI_PROJECT_ENDPOINT', value: resolvedProjectEndpoint }
         { name: 'AZURE_AI_MODEL_DEPLOYMENT', value: azureAiModelDeployment }
         { name: 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET', value: '@Microsoft.KeyVault(VaultName=${kv.name};SecretName=${entraAuthSecret.name})' }
@@ -339,7 +373,7 @@ resource web 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'FOUNDRY_IQ_SEARCH_ENDPOINT', value: resolvedSearchEndpoint }
         { name: 'FOUNDRY_IQ_KNOWLEDGE_BASE', value: provisionFoundryIq ? foundryIqKnowledgeBase : '' }
         { name: 'FOUNDRY_IQ_MCP_CONNECTION', value: provisionFoundryIq ? 'fibreops-kb-mcp' : '' }
-      ]
+      ])
     }
   }
 }
@@ -387,8 +421,9 @@ resource webAuth 'Microsoft.Web/sites/config@2022-09-01' = {
 //   Event Hubs Data Owner   f526a384-b230-433a-b45c-95f59c4a2dec
 //   Key Vault Secrets User  4633458b-17de-408a-b874-0445c86b69e6
 //   AcrPull                 7f951dda-4ed3-4680-a7ca-43fe172d538d
-//   Azure AI User           53ca6127-db72-4b80-b1b0-d745d6d5456d (on Foundry account)
-//   Cognitive Services User a97b65f3-24c7-4388-baec-2e87135dc908 (on Voice Live AI Services account)
+// Role names are resolved by scripts/grant-mi-roles.ps1 so current built-in
+// definitions are used across tenants (Foundry Agent Consumer, Foundry User,
+// Container Registry Repository Reader, and the service-specific data roles).
 
 output AZURE_LOCATION string = location
 output AZURE_RESOURCE_GROUP string = resourceGroup().name

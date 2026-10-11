@@ -1,27 +1,49 @@
+"""List agents in the selected AZD environment's Foundry project."""
+from __future__ import annotations
+
+import argparse
+import os
+
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential
-import json, os
-from dotenv import load_dotenv
 
-load_dotenv('C:/Users/leestott/BRK241-frontier/.azure/fibreops-demo/.env')
-endpoint = os.environ.get('AZURE_AI_PROJECT_ENDPOINT') or os.environ.get('FOUNDRY_PROJECT_ENDPOINT')
-print(f'Endpoint: {endpoint}')
+from scripts.deployment_config import get_azd_values
 
-client = AIProjectClient(endpoint=endpoint, credential=DefaultAzureCredential(), allow_preview=True)
-try:
-    agents = client.agents.list()
-    # agents might be a list or an object with a .data attribute
-    agent_list = agents.data if hasattr(agents, 'data') else agents
-    for a in agent_list:
-        print(f'Agent Name: {a.name}, ID: {a.id}')
-        try:
-            versions = client.agents.list_versions(agent_name=a.name)
-            ver_items = versions.data if hasattr(versions, 'data') else versions
-            for v in ver_items:
-                print(f'  - Version: {getattr(v, "version", "N/A")}, ID: {getattr(v, "id", "N/A")}')
-        except Exception as ve:
-            print(f'  - Could not list versions for {a.name}: {ve}')
-except Exception as e:
-    print(f'Error listing agents: {e}')
-finally:
-    client.close()
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--environment", help="AZD environment name; defaults to AZURE_ENV_NAME/current")
+    parser.add_argument("--endpoint", help="Explicit Foundry project endpoint")
+    args = parser.parse_args()
+    values = get_azd_values(args.environment) if not args.endpoint else {}
+    endpoint = (
+        args.endpoint
+        or os.getenv("AZURE_AI_PROJECT_ENDPOINT")
+        or os.getenv("FOUNDRY_PROJECT_ENDPOINT")
+        or values.get("AZURE_AI_PROJECT_ENDPOINT")
+    )
+    if not endpoint:
+        parser.error("No project endpoint found. Select an AZD environment or pass --endpoint.")
+
+    print(f"Endpoint: {endpoint}")
+    with AIProjectClient(
+        endpoint=endpoint,
+        credential=DefaultAzureCredential(),
+        allow_preview=True,
+    ) as client:
+        agents = client.agents.list()
+        agent_list = agents.data if hasattr(agents, "data") else agents
+        for agent in agent_list:
+            print(f"Agent Name: {agent.name}, ID: {agent.id}")
+            versions = client.agents.list_versions(agent_name=agent.name)
+            version_items = versions.data if hasattr(versions, "data") else versions
+            for version in version_items:
+                print(
+                    f"  - Version: {getattr(version, 'version', 'N/A')}, "
+                    f"ID: {getattr(version, 'id', 'N/A')}"
+                )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

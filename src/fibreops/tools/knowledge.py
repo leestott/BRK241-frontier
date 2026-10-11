@@ -19,6 +19,7 @@ their decisions on (BRK241 slide 9 "Foundry IQ" announcement).
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -61,8 +62,10 @@ def lookup_sop(signal_type: str) -> dict[str, Any]:
 def lookup_node(node_id: str) -> dict[str, Any]:
     """Return topology metadata for a fibre node."""
     with tool_span("knowledge.lookup_node", node_id=node_id):
+        lookup_key = re.sub(r"[^A-Z0-9]", "", node_id.upper())
         for node in load_json("fibre_nodes.json"):
-            if node["node_id"] == node_id:
+            node_key = re.sub(r"[^A-Z0-9]", "", node["node_id"].upper())
+            if node_key == lookup_key:
                 return node
         return {}
 

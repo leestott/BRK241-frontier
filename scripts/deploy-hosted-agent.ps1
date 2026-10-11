@@ -14,7 +14,7 @@
     The image is built **in ACR** with `az acr build --platform linux/amd64`, so
     a local Docker daemon is NOT required. The hosting platform pulls the image
     using the Foundry project's managed identity, which must hold
-    *Container Registry Repository Reader* (AcrPull) on the registry — run
+    *Container Registry Repository Reader* on the registry — run
     scripts/grant-mi-roles.ps1 with -FoundryAccountName to grant it.
 
 .PARAMETER RegistryName
@@ -134,8 +134,8 @@ finally {
 if ($deployExit -ne 0) {
     Write-Host "Hosted-agent deploy reported a non-zero exit code ($deployExit)." -ForegroundColor Red
     Write-Host "Common causes:" -ForegroundColor Yellow
-    Write-Host "  * The deploying user needs 'Azure AI Project Manager' at project scope." -ForegroundColor Yellow
-    Write-Host "  * The Foundry project MI needs 'Container Registry Repository Reader' on $RegistryName." -ForegroundColor Yellow
+    Write-Host "  * The deploying user needs 'Foundry Project Manager' at project scope." -ForegroundColor Yellow
+    Write-Host "  * The Foundry project MI needs 'Foundry User' on the account and 'Container Registry Repository Reader' on $RegistryName." -ForegroundColor Yellow
     Write-Host "    -> pwsh scripts/grant-mi-roles.ps1 -FoundryAccountName <acct> -FoundryResourceGroup <rg>" -ForegroundColor Yellow
     exit $deployExit
 }

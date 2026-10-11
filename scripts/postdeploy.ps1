@@ -39,6 +39,41 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
+$validPhases = @("rbac", "iq", "prompt", "hosted", "voice", "sync")
+$requestedPhases = if ($env:FIBREOPS_DEPLOY_PHASES) {
+    @($env:FIBREOPS_DEPLOY_PHASES.Split(",") | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ })
+} else {
+    $validPhases
+}
+$invalidPhases = @($requestedPhases | Where-Object { $_ -notin $validPhases })
+if ($invalidPhases) {
+    throw "Unknown FIBREOPS_DEPLOY_PHASES value(s): $($invalidPhases -join ', '). Valid phases: $($validPhases -join ', ')."
+}
+$stateDirectory = Join-Path $repoRoot ".azure/$($env:AZURE_ENV_NAME)"
+$statePath = Join-Path $stateDirectory "postdeploy-state.json"
+$phaseState = if (Test-Path $statePath) {
+    Get-Content $statePath -Raw | ConvertFrom-Json -AsHashtable
+} else {
+    @{}
+}
+function Test-Phase([string]$Name) {
+    if ($Name -notin $requestedPhases) {
+        Write-Host "Phase '$Name' was not selected." -ForegroundColor DarkGray
+        return $false
+    }
+    if ($env:FIBREOPS_RESUME_DEPLOYMENT -eq "true" -and $phaseState[$Name] -eq "complete") {
+        Write-Host "Phase '$Name' already completed; resume mode is skipping it." -ForegroundColor Yellow
+        return $false
+    }
+    return $true
+}
+function Complete-Phase([string]$Name) {
+    $phaseState[$Name] = "complete"
+    New-Item -ItemType Directory -Path $stateDirectory -Force | Out-Null
+    $phaseState | ConvertTo-Json | Set-Content -Path $statePath -Encoding utf8NoBOM
+    Write-Host "Phase '$Name' complete." -ForegroundColor Green
+}
+
 # Resolve a Python interpreter: prefer the repo venv, else system python.
 $venvPython = Join-Path $repoRoot ".venv/Scripts/python.exe"
 if (-not (Test-Path $venvPython)) {
@@ -55,11 +90,15 @@ $env:AZURE_AI_PROJECT_ENDPOINT = $ProjectEndpoint
 if ($ModelDeployment) { $env:AZURE_AI_MODEL_DEPLOYMENT = $ModelDeployment }
 
 # Grant the web and Foundry project identities access before publishing agents.
-& "$PSScriptRoot/grant-mi-roles.ps1" -ResourceGroup $ResourceGroup `
-    -AppServiceName $env:AZURE_APP_SERVICE_NAME `
-    -FoundryAccountName $FoundryAccountName `
-    -FoundryResourceGroup $FoundryResourceGroup `
-    -FoundryProjectName $FoundryProjectName
+if (Test-Phase "rbac") {
+    & "$PSScriptRoot/grant-mi-roles.ps1" -ResourceGroup $ResourceGroup `
+        -AppServiceName $env:AZURE_APP_SERVICE_NAME `
+        -FoundryAccountName $FoundryAccountName `
+        -FoundryResourceGroup $FoundryResourceGroup `
+        -FoundryProjectName $FoundryProjectName
+    if ($LASTEXITCODE -ne 0) { throw "Managed-identity RBAC phase failed." }
+    Complete-Phase "rbac"
+}
 
 # --- 0. Provision the Foundry IQ knowledge base (Azure AI Search) ---
 # azd output AZURE_SEARCH_SERVICE_NAME / AZURE_SEARCH_ENDPOINT identify the
@@ -67,6 +106,7 @@ if ($ModelDeployment) { $env:AZURE_AI_MODEL_DEPLOYMENT = $ModelDeployment }
 # FibreOps SOPs + topology. Skip with FIBREOPS_SKIP_FOUNDRY_IQ=true.
 $searchName = $env:AZURE_SEARCH_SERVICE_NAME
 $searchEndpoint = $env:AZURE_SEARCH_ENDPOINT
+if (Test-Phase "iq") {
 if ($env:FIBREOPS_SKIP_FOUNDRY_IQ -eq 'true') {
     Write-Host "FIBREOPS_SKIP_FOUNDRY_IQ=true -> skipping Foundry IQ knowledge base provisioning." -ForegroundColor DarkGray
 }
@@ -103,8 +143,11 @@ elseif ($searchName -and $searchEndpoint) {
 else {
     Write-Host "No Azure AI Search service found (AZURE_SEARCH_ENDPOINT unset) -> skipping Foundry IQ." -ForegroundColor DarkGray
 }
+Complete-Phase "iq"
+}
 
 # --- 1. Publish the three role Prompt Agents (default ON) ---
+if (Test-Phase "prompt") {
 if ($env:FIBREOPS_SKIP_PUBLISH -eq 'true') {
     Write-Host "FIBREOPS_SKIP_PUBLISH=true -> skipping Prompt Agent publish." -ForegroundColor DarkGray
 }
@@ -112,7 +155,7 @@ else {
     Write-Host "Publishing the three role Prompt Agents to Foundry (hosted backend needs these)..." -ForegroundColor Cyan
     & $python -m fibreops.demo publish
     if ($LASTEXITCODE -ne 0) {
-        throw "Prompt Agent publish failed. Ensure Azure AI Project Manager permissions and re-run $python -m fibreops.demo publish."
+        throw "Prompt Agent publish failed. Ensure Foundry Project Manager permissions and re-run $python -m fibreops.demo publish."
     }
     else {
         Write-Host "  Prompt Agents published." -ForegroundColor Green
@@ -145,19 +188,25 @@ else {
         Write-Host "  Published agent versions configured on App Service." -ForegroundColor Green
     }
 }
+Complete-Phase "prompt"
+}
 
 # --- 2. Deploy the containerised hosted agent (default OFF) ---
+if (Test-Phase "hosted") {
 if ($env:FIBREOPS_DEPLOY_HOSTED -eq 'true') {
     Write-Host "FIBREOPS_DEPLOY_HOSTED=true -> deploying hosted agent to Foundry Agent Service..." -ForegroundColor Cyan
     & "$PSScriptRoot/deploy-hosted-agent.ps1" -RegistryName $RegistryName -ResourceGroup $ResourceGroup
-    if ($LASTEXITCODE -ne 0) { throw "Hosted-agent deploy failed. Check Foundry project MI AcrPull in scripts/grant-mi-roles.ps1." }
+    if ($LASTEXITCODE -ne 0) { throw "Hosted-agent deploy failed. Check Foundry project MI Foundry User and Container Registry Repository Reader grants." }
 }
 else {
     Write-Host "Skipping hosted-agent deploy. Enable with: azd env set FIBREOPS_DEPLOY_HOSTED true" -ForegroundColor DarkGray
 }
+Complete-Phase "hosted"
+}
 
 # Voice Agents Preview requires azure-ai-projects>=2.7 while Agent Framework
 # currently requires <2.7. Publish from a separate, ignored environment.
+if (Test-Phase "voice") {
 if ($env:FIBREOPS_PUBLISH_VOICE -eq 'true') {
     $voiceName = $env:AZURE_VOICE_AGENT_NAME
     if (-not $voiceName) { $voiceName = 'fibreops-noc-voice' }
@@ -190,6 +239,17 @@ if ($env:FIBREOPS_PUBLISH_VOICE -eq 'true') {
     azd env set AZURE_VOICE_AGENT_VERSION $voiceVersion
     if ($LASTEXITCODE -ne 0) { throw "Unable to save local voice agent version." }
     Write-Host "Foundry voice agent $voiceName version $voiceVersion is configured." -ForegroundColor Green
+}
+elseif (-not $env:AZURE_VOICE_AGENT_NAME -or -not $env:AZURE_VOICE_AGENT_VERSION) {
+    Write-Warning "Voice publishing is disabled and no immutable voice agent name/version is configured."
+}
+Complete-Phase "voice"
+}
+
+if (Test-Phase "sync") {
+    & $python "$repoRoot/scripts/deployment_config.py" sync-env --environment $env:AZURE_ENV_NAME --destination "$repoRoot/.env"
+    if ($LASTEXITCODE -ne 0) { throw "Safe AZD-to-.env synchronization failed." }
+    Complete-Phase "sync"
 }
 
 Write-Host ""

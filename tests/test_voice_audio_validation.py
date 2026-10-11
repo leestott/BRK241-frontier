@@ -5,7 +5,14 @@ import wave
 
 import pytest
 
-from scripts.validate_voice_audio import CASES, audio_metrics, judge, write_wav
+from scripts.validate_voice_audio import (
+    CASES,
+    audio_metrics,
+    judge,
+    resolve_speech_access_token,
+    speech_authorization_token,
+    write_wav,
+)
 
 
 @pytest.mark.parametrize("pcm", [b"", b"\x00"])
@@ -22,6 +29,34 @@ def test_audio_metrics_and_wav_format(tmp_path):
     with wave.open(str(path), "rb") as audio:
         assert (audio.getnchannels(), audio.getsampwidth(), audio.getframerate()) == (1, 2, 24000)
         assert audio.readframes(audio.getnframes()) == pcm
+
+
+def test_speech_authorization_token_uses_required_entra_format():
+    resource_id = "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.CognitiveServices/accounts/speech"
+    assert speech_authorization_token(resource_id, "token") == f"aad#{resource_id}#token"
+    with pytest.raises(ValueError, match="resource ID"):
+        speech_authorization_token("", "token")
+
+
+@pytest.mark.asyncio
+async def test_speech_access_token_uses_sts_exchange_when_key_is_available(monkeypatch):
+    class Response:
+        text = "sts-token"
+
+        def raise_for_status(self):
+            pass
+
+    class Client:
+        async def post(self, url, headers):
+            assert url == "https://speech.example/sts/v1.0/issueToken"
+            assert headers["Ocp-Apim-Subscription-Key"] == "api-key"
+            return Response()
+
+    monkeypatch.setenv("AZURE_VOICE_LIVE_API_KEY", "api-key")
+    token = await resolve_speech_access_token(
+        Client(), "https://speech.example/", "/subscriptions/sub/resource", "entra-token",
+    )
+    assert token == "sts-token"
 
 
 @pytest.mark.asyncio

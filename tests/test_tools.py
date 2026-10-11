@@ -15,6 +15,14 @@ def test_lookup_node_returns_topology():
     assert node["customers_served"] > 0
 
 
+def test_lookup_node_normalises_spoken_identifier_variants():
+    expected = lookup_node("FN-MAN-007")
+
+    assert lookup_node("fn-man-007") == expected
+    assert lookup_node("FN MAN 007") == expected
+    assert lookup_node("fn_man_007.") == expected
+
+
 def test_find_best_engineer_prefers_on_shift_in_region():
     res = find_best_engineer("FN-LDN-001", ["splicing"])
     assert res["engineer"] is not None
