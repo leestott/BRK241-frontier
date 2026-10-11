@@ -7,6 +7,16 @@ from urllib.parse import unquote, urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_contributor_workflow_is_explicitly_offline_and_checks_dependencies():
+    text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    assert '-m pip install -e . --no-deps' in text
+    assert '-m pip check' in text
+    assert '$env:FIBREOPS_AGENT_BACKEND = "local"' in text
+    assert r'node --test tests\test_voice_client.cjs' in text
+    assert 'Do not install the preview publisher SDK into `.venv`' in text
+    assert 'Azure CLI, Docker and Azure' in text
+
+
 def test_public_markdown_links_resolve():
     documents = list(ROOT.glob("*.md")) + list((ROOT / "docs").rglob("*.md"))
     documents += list((ROOT / ".github" / "skills").rglob("SKILL.md"))
