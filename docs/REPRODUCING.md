@@ -1,17 +1,33 @@
 # Reproducing the deployed FibreOps demo
 
-## Production-aligned source
+## Current portable release
 
-The code, tests, dependency manifests and workflows on this branch are restored
-to deployed source checkpoint **`17441e16ccb17110b1e643ffb5930bba95379f87`**.
-Only Markdown documentation differs from that checkpoint. This is intentional:
-do not mix unpromoted experimental code into the production source.
+The October 11 portable implementation is preserved at release commit
+`bf5937f` on `main`. It adds dedicated voice-project provisioning, exact
+critical-incident handling, technical evaluation datasets, and safe environment
+synchronization. Later documentation changes do not imply a new app deployment.
 
-Experimental tooling is separate from the production-aligned source; see
-[Evaluation tooling and experimental results](#evaluation-tooling-and-experimental-results).
-Do not use an experimental revision as the production build source.
+The current demo is pinned to voice version **1**, using self-deployed
+`gpt-realtime-2.1` and `ar-AE-Rashid:DragonHDLatestNeural`. English remains the
+default, with explicit Arabic/Polish overrides for the current turn only.
+The strict 60-row voice gate passed 31 and failed 29 with zero evaluator errors.
+No native-speaker pronunciation approval has been recorded.
 
-Verified deployed release, 7 October 2026:
+Candidate version **2** and its evaluator repairs are preserved separately on
+the public `voice-candidate-v2` branch. Its repaired SDK/latest-portal evaluation
+completed 60 rows with zero errors: 39 passed and 21 failed. Exact identifiers
+improved, but one reply rounded `-18.4 dBm` to `-18 dBm`, and Arabic fluency
+regressed. It was not promoted. Version identifiers are local to each project.
+
+Use [the deployment procedure](../README.md#deploy-to-azure) for your own
+environment. Record the deployed image and immutable voice version in ignored
+local state. Never copy the operator's tenant, subscription, endpoint, email,
+credentials, or recorded runtime state into a fork or shared report.
+
+## Historical October 7 release (not the current deployment)
+
+The following evidence describes the earlier release only. Its image, source
+checkpoint, voice version and native `marin` voice are not the current baseline.
 
 | Surface | Deployed value |
 |---|---|
@@ -32,14 +48,17 @@ source with floating dependencies does not guarantee identical image bytes.
 Publishing an unchanged definition creates a new Foundry version; it does not
 automatically reproduce the existing version identifier or change the app pin.
 
-Verify production alignment from the repository root:
+The following comparison is only available in an operator checkout that retains
+the historical checkpoint. It is not a clean-clone setup or validation command;
+public history was sanitized and that old identifier may not resolve.
 
 ```powershell
 git diff --exit-code 17441e16ccb17110b1e643ffb5930bba95379f87 HEAD -- `
   . ':(exclude)*.md' ':(exclude)**/*.md'
 ```
 
-No output and exit code zero mean the committed non-Markdown tree matches.
+No output and exit code zero mean the committed non-Markdown tree matches
+that historical checkpoint, not the current deployment. Current `main` differs.
 Check `git status --short` too: that comparison does not include uncommitted work.
 Do not replace the pinned image or agent merely to check the website.
 
@@ -125,20 +144,19 @@ health check. Deployment and voice promotion require an explicit rollout decisio
 
 ## Evaluation tooling and experimental results
 
-This branch retains the original production-checkpoint language audio validator,
-SDK evaluator and isolated voice publisher. See the
+`main` includes technical incident suites and the isolated voice publisher.
+Its voice SDK evaluator still has legacy per-row credential/event-loop behavior.
+The token-cache and native-async repairs are on `voice-candidate-v2`, whose
+completed evaluation remains a failed quality gate. See the
 [voice evaluation documentation](../README.md#azure-ai-evaluation-sdk-and-foundry-results)
-for their original workflow. It does **not** contain incident suites,
-`--resume`, `--resume-from`, segmented-transcript handling, the comparison
-script or the later async/token-cache safeguards.
+for the workflow. `main` does **not** contain `--resume`, `--resume-from`,
+segmented-transcript handling or the older experimental comparison script.
 
-The optimized comparison used different tooling preserved at `c80c2e9`.
-To inspect/reproduce that experiment, use a separate worktree and its own
-documentation; do not publish or deploy from it as though it were production:
-
-```powershell
-git worktree add --detach ..\BRK241-voice-experiment c80c2e9
-```
+The historical optimized comparison below used different tooling preserved
+in an operator's local experimental branch. That branch is not a public
+clean-clone prerequisite. For the public October 11 candidate, fetch
+`origin/voice-candidate-v2` and use a separate checkout with its own documentation;
+do not publish or deploy from it as though it were production.
 
 Keep evaluation SDKs isolated from the application and publisher environments.
 Historical scoring can stall or fail; preserve errors and complete datasets.
@@ -147,7 +165,8 @@ available: retain `human_listening_approved=false` and report pronunciation as
 **not verified**. Never tune a previously inspected holdout and still call it
 untouched, mix evaluation protocols, or weaken thresholds to obtain a pass.
 
-Recorded matched results using the experimental tooling (not production code):
+Historical matched results using the experimental tooling (not current
+production or the October 11 candidate):
 
 | Evaluation | Production voice v4 | Candidate voice v3 |
 |---|---:|---:|

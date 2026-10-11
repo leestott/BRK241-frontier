@@ -3,6 +3,20 @@ from pathlib import Path
 from scripts.deployment_config import parse_azd_values, sync_env_file
 
 
+def test_container_build_context_excludes_private_local_artifacts():
+    root = Path(__file__).resolve().parents[1]
+    patterns = set((root / ".dockerignore").read_text(encoding="utf-8").splitlines())
+    for pattern in (".env", ".env.*", ".azure/", "state/", ".foundry/", "*.log"):
+        assert pattern in patterns
+
+
+def test_evaluation_ci_installs_async_test_plugin():
+    workflow = (
+        Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml"
+    ).read_text(encoding="utf-8")
+    assert "pip install -r requirements-evaluation.txt pytest pytest-asyncio" in workflow
+
+
 def test_parse_azd_values_does_not_evaluate_shell_text():
     values = parse_azd_values(
         'AZURE_LOCATION="northcentralus"\n'

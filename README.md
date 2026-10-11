@@ -8,19 +8,20 @@
 
 ## Production source and reproduction
 
-Code, tests, dependency manifests and workflows on this branch match deployed
-checkpoint **`17441e16ccb17110b1e643ffb5930bba95379f87`**. Only Markdown
-documentation differs. The existing demo uses image `release-20261007-171059`,
-canonical voice agent **v4**, native `marin` and browser voice script **v3**.
+The portable release on `main` includes dedicated voice-project provisioning,
+technical incident evaluations, and critical-incident reliability fixes.
+The October 11 demo uses the self-deployed `gpt-realtime-2.1` model and
+`ar-AE-Rashid:DragonHDLatestNeural`, with production voice version **1** pinned.
+Version numbers are project-specific: a new deployment must record its own
+published immutable version rather than assume the same number.
 
-Experimental incident tooling and browser v4 changes are not part of this
-branch's production-aligned code. See the reproduction guide for their separate
-evaluation workflow and measured limitations. Do not use an experimental
-revision as the production build source.
+The unpromoted `voice-candidate-v2` branch contains spoken-identifier changes
+and evaluator token-cache/async fixes. Its strict acceptance gate did not pass;
+do not deploy it as though it were the production release.
 
-See [Reproducing the deployed demo](docs/REPRODUCING.md) for the immutable image
-digest, source-alignment check, safe local setup, live validation and clearly
-separated experimental results. No native-speaker review has been performed.
+See [Reproducing the deployed demo](docs/REPRODUCING.md) for portable setup,
+live validation, current evaluation limits, and separately labelled historical
+experiments. No native-speaker review has been performed.
 
 ## Architecture (textual)
 
@@ -446,13 +447,13 @@ audio datasets, evaluator errors, missing scores and outdated language policies
 fail closed. Limited SDK concurrency avoids overwhelming local CLI authentication
 and the judge endpoint.
 
-This is the historical production-checkpoint evaluator. It does not include
-later asynchronous/token-cache fixes, incident suites or portal resumption.
-Extended scoring encountered stalls and authentication failures during later
-experiments; the original code is retained here for production alignment, not
-as a claim that those limitations are fixed. Use the separate experimental
-worktree described in the [reproduction guide](docs/REPRODUCING.md#evaluation-tooling-and-experimental-results)
-to reproduce the newer comparisons, without changing production source.
+The `main` voice evaluator retains the legacy per-row credential/event-loop
+behavior; extended scoring can stall or fail on Azure CLI subprocess calls.
+Token-cache and native-async fixes were validated separately on
+`voice-candidate-v2`, not promoted to `main`. Technical incident datasets are
+included on `main`; portal resumption is not. Preserve failed attempts and use
+a separate candidate checkout for the newer evaluator rather than replacing
+production code just to reproduce a benchmark.
 
 Quality iterations retain the full dataset and the same thresholds. The voice
 prompt favours direct, idiomatic answers with connected sentences and no redundant
@@ -1124,6 +1125,15 @@ contains no registry: after publishing, the postdeploy hook sets
 to the correct versions. The hook writes this JSON setting through an
 ephemeral local file so Azure CLI preserves the quotes required by the
 registry parser.
+
+Docker build contexts also exclude `.env*`, `.azure/`, runtime `state/`,
+all `.foundry/` evaluation files, and local `*.log` files. Git ignore rules
+alone do not protect files uploaded to a remote container build.
+Share only sanitized aggregate evaluation results; detailed transcripts, portal
+URLs, recordings, account emails, tenant/subscription IDs and credentials stay
+local. Before publishing a fork, scan all branches and tags as well as the
+working tree, and review GitHub issue bodies, comments, releases and workflow
+artifacts. A clean current tree does not certify its historical objects.
 
 > **Public-demo security boundary:** This template exposes its demo web app,
 > Search, Key Vault, and container registry over public Azure endpoints and

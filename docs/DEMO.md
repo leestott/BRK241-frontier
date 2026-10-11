@@ -5,10 +5,12 @@
 > **Failure budget:** rehearse the local workflow as a fallback; it does not replace or verify cloud integrations
 
 Use the [reproduction and deployed-release guide](REPRODUCING.md) before rehearsal.
-The deployed console remains on canonical voice **v4** and browser script **v3**.
-This branch's code matches deployed checkpoint `17441e1`. The incident candidate
-**v3** and structured-facts UI are preserved at experimental commit `c80c2e9`,
-not in this branch's active code. No native-speaker listener is available for this run:
+The October 11 deployed console remains pinned to voice **v1**, using the
+self-deployed `gpt-realtime-2.1` model and UAE Arabic multilingual
+`ar-AE-Rashid:DragonHDLatestNeural`. The separate `voice-candidate-v2` branch
+is not promoted; its strict acceptance gate still fails. Newly deployed
+projects must pin their own published version rather than assume v1.
+No native-speaker listener is available for this run:
 describe pronunciation as **not verified**, even when automated gates pass.
 The audited deployed console uses **Teams outbox** and **IQ fixtures**. The
 optional live-channel narration below applies only after separately configuring

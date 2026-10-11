@@ -23,9 +23,11 @@ runtime to the preview publisher SDK.
 
 ## Procedure
 
-This branch is production-aligned to checkpoint `17441e1`. The improved incident
-evaluation tooling and candidate instructions are preserved separately at
-`c80c2e9`; they are not deployed. See the
+The portable release is on `main`; the October 11 demo remains pinned to voice
+version 1 in its dedicated project. Project-specific version numbers must not
+be copied into a new deployment. Candidate instructions and evaluator
+token-cache/native-async repairs are on `voice-candidate-v2`; its strict gate
+failed and it is not promoted. See the
 [reproduction guide](../../../docs/REPRODUCING.md). Do not copy experimental
 code into this branch or promote a candidate without explicit approval.
 
@@ -41,7 +43,8 @@ code into this branch or promote a candidate without explicit approval.
    python -m pytest --noconftest tests\test_voice_sdk_evaluation.py tests\test_voice_audio_validation.py -q
    ```
 
-3. Publish a separate candidate with `AZURE_AI_PROJECT_ENDPOINT`,
+3. Publish a separate candidate with `AZURE_VOICE_PROJECT_ENDPOINT`
+   (falling back to `AZURE_AI_PROJECT_ENDPOINT` only when intentionally configured),
    `AZURE_VOICE_AGENT_NAME`, `AZURE_VOICE_AGENT_MODEL=gpt-realtime-2.1`,
    `AZURE_VOICE_AGENT_VOICE=ar-AE-Rashid:DragonHDLatestNeural`,
    `AZURE_VOICE_AGENT_VOICE_TYPE=azure-standard`, and
@@ -58,10 +61,11 @@ code into this branch or promote a candidate without explicit approval.
 5. Run `python -m scripts.evaluate_voice_responses` with the complete report,
    project endpoint, judge endpoint and fresh output directory. Set
    `$env:PF_WORKER_COUNT = "2"` for bounded local evaluation concurrency.
-   This restored historical evaluator lacks the later async/token-cache fixes
-   and portal resumption. Preserve any scoring/authentication failures; do not
-   claim those limitations are resolved. Use a separate experimental worktree
-   for the newer benchmark rather than modifying production code.
+   The `main` evaluator lacks the candidate branch's async/token-cache fixes
+   and portal resumption. The repaired evaluator completed all 60 candidate
+   rows with zero errors, but the quality gate failed (39 passed, 21 failed).
+   Preserve scoring/authentication failures. Use a separate candidate checkout
+   for the repaired evaluator rather than modifying production without approval.
 6. Verify both the original SDK record and the latest portal's **Evaluations >
    Runs** record. Legacy `azure_ai_project` upload alone does not populate the
    latest portal. Retain original scores and failed gates; check every downloaded

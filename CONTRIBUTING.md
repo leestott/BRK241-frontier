@@ -19,7 +19,8 @@ questions or comments.
 ## Development workflow
 
 Start with the [reproduction guide](docs/REPRODUCING.md); it distinguishes the
-production-aligned code from the separately preserved experiment and keeps
+current portable release from historical experiments and the separate public
+voice candidate branch, and keeps
 evaluation SDKs isolated from the application runtime. Do not merge experimental
 voice definitions or UI changes into this branch merely to reproduce a benchmark.
 
