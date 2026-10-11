@@ -1,0 +1,59 @@
+{
+  "agent": "fibreops-noc-voice",
+  "agentVersion": "2",
+  "model": "gpt-realtime-2.1",
+  "voice": "ar-AE-Rashid:DragonHDLatestNeural",
+  "voiceType": "azure-standard",
+  "humanListeningApproved": false,
+  "productionPromoted": false,
+  "audioAcceptance": {
+    "expectedTurns": 60,
+    "completedTurns": 60,
+    "technicalTurns": 12,
+    "silentOrMissingTurns": 0
+  },
+  "evaluation": {
+    "status": "Completed",
+    "sdkCloudVerified": true,
+    "latestPortalStatus": "completed",
+    "total": 60,
+    "passed": 39,
+    "failed": 21,
+    "errored": 0,
+    "skipped": 0,
+    "acceptanceGatePassed": false,
+    "evaluators": {
+      "fluency": {"threshold": 4, "passed": 40, "failed": 20},
+      "coherence": {"threshold": 4, "passed": 60, "failed": 0},
+      "languageMatch": {"threshold": 1, "passed": 60, "failed": 0},
+      "semanticAccuracy": {"threshold": 1, "passed": 59, "failed": 1},
+      "naturalLanguage": {"threshold": 1, "passed": 60, "failed": 0},
+      "inputRecognition": {"threshold": 1, "passed": 60, "failed": 0}
+    },
+    "byResponseLanguage": {
+      "en": {"rows": 39, "fluencyPassed": 29, "semanticAccuracyPassed": 38},
+      "ar": {"rows": 9, "fluencyPassed": 6, "semanticAccuracyPassed": 9},
+      "pl": {"rows": 12, "fluencyPassed": 5, "semanticAccuracyPassed": 12}
+    },
+    "comparison": {
+      "baselineAgentVersion": "1",
+      "baselinePassed": 31,
+      "baselineFailed": 29,
+      "baselineSemanticAccuracyPassed": 51,
+      "notes": [
+        "Both runs used 60 real-audio turns, the same cases, and unchanged acceptance thresholds.",
+        "Candidate identifiers were preserved in all 12 technical replies.",
+        "One English technical reply rounded the last good reading from -18.4 dBm to -18 dBm.",
+        "Arabic fluency passed 6 of 9 rows versus 8 of 9 in the baseline; improvement is not uniform across metrics.",
+        "Model-judge scores are stochastic; this single comparison does not certify a reliable improvement.",
+        "Production remains pinned to version 1 because the candidate acceptance gate did not pass."
+      ]
+    },
+    "executionNotes": [
+      "Two earlier attempts failed on Azure CLI credential subprocess invocation.",
+      "A single-worker attempt stalled and was stopped.",
+      "The completed run used the candidate-branch token-cache and native-async evaluator fixes.",
+      "Detailed failed attempts, transcripts, credentials, endpoints, and portal identifiers are not included in this public aggregate."
+    ]
+  }
+}

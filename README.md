@@ -446,6 +446,16 @@ evaluator is natively asynchronous, so the SDK owns its event loop rather than
 starting and closing a new loop for every row. These changes do not alter judge
 prompts, thresholds, recorded failures, or the production voice pin.
 
+The repaired candidate evaluation completed all 60 rows in both the SDK and
+latest portal with zero evaluator errors. See the sanitized
+[candidate version 2 aggregate](.foundry/results/fibreops-noc-voice-candidate-v2.json):
+39 rows passed and 21 failed, versus 31 passed and 29 failed for version 1.
+Semantic accuracy improved from 51/60 to 59/60; one reply still rounded
+`-18.4 dBm` to `-18 dBm`. Fluency passed 40/60, but Arabic fluency declined
+from 8/9 to 6/9. This single, stochastic comparison does not certify improvement.
+The strict gate remains failed, native-speaker approval remains absent, and
+production remains pinned to version 1.
+
 The SDK runs built-in Fluency and Coherence evaluators with reasoning-model support,
 plus a custom evaluator for response language, semantic accuracy, natural language,
 and input recognition. **Every row** must score at least 4/5 for fluency/coherence
