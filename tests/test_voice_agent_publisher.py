@@ -11,7 +11,7 @@ from azure.ai.projects import models
     "Requires the isolated requirements-voice.txt preview publisher environment",
 )
 class VoiceAgentPublisherTests(unittest.TestCase):
-    def test_default_definition_uses_native_speech_and_unbiased_transcription(self) -> None:
+    def test_default_definition_uses_uae_arabic_multilingual_voice(self) -> None:
         from scripts.publish_voice_agent import build_definition
 
         definition = build_definition().as_dict()
@@ -19,13 +19,13 @@ class VoiceAgentPublisherTests(unittest.TestCase):
 
         self.assertEqual(definition["kind"], "voice")
         self.assertEqual(definition["model"], "gpt-realtime-2.1")
-        self.assertEqual(output["voice"], "marin")
-        self.assertEqual(output["voice_type"], "openai")
-        self.assertIsNone(output.get("prefer_locales"))
+        self.assertEqual(output["voice"], "ar-AE-Rashid:DragonHDLatestNeural")
+        self.assertEqual(output["voice_type"], "azure-standard")
+        self.assertEqual(output["prefer_locales"], ["en-GB", "ar-AE"])
         self.assertIsNone(output.get("voice_locale"))
         transcription = definition["audio"]["input"]["transcription"]
         self.assertEqual(transcription["model"], "whisper-1")
-        self.assertIn("unconfirmed cause", transcription["prompt"])
+        self.assertIn("English, Polish, and Arabic", transcription["prompt"])
         self.assertIsNone(transcription.get("language"))
         self.assertIsNone(transcription.get("languages"))
         self.assertTrue(definition["audio"]["input"]["turn_detection"]["create_response"])
@@ -39,7 +39,7 @@ class VoiceAgentPublisherTests(unittest.TestCase):
         from scripts.publish_voice_agent import build_definition
 
         definition = build_definition(
-            model="test-model", voice="cedar"
+            model="test-model", voice="cedar", voice_type="openai"
         ).as_dict()
         output = definition["audio"]["output"]
 
@@ -48,8 +48,8 @@ class VoiceAgentPublisherTests(unittest.TestCase):
         self.assertIsNone(output.get("prefer_locales"))
         self.assertIsNone(output.get("voice_locale"))
 
-    def test_legacy_tts_voice_is_rejected_before_publishing(self) -> None:
+    def test_invalid_voice_type_is_rejected_before_publishing(self) -> None:
         from scripts.publish_voice_agent import build_definition
 
-        with self.assertRaisesRegex(ValueError, "native realtime voice"):
-            build_definition(voice="en-GB-OllieMultilingualNeural")
+        with self.assertRaisesRegex(ValueError, "openai or azure-standard"):
+            build_definition(voice_type="unsupported")

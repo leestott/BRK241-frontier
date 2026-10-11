@@ -301,8 +301,9 @@ async def validate(args: argparse.Namespace) -> None:
                             session = event["session"]
                             report["effective_model"] = session["model"]
                             report["effective_audio"] = session["audio"]
-                            if session["audio"]["output"]["voice_type"] != "openai":
-                                raise ValueError("Expected native speech output")
+                            voice_type = session["audio"]["output"]["voice_type"]
+                            if voice_type not in {"openai", "azure-standard"}:
+                                raise ValueError(f"Unsupported speech output type: {voice_type}")
                             break
                     for case in CASES:
                         input_text, output_text, audio = await turn(ws, fixtures[case.name])

@@ -38,8 +38,8 @@ def test_speak_status_update_writes_to_outbox_by_default(chdir_state_tmp: Path) 
     assert "FN-LDN-001" in payload["text"]
     assert "London" in payload["text"]
     assert "8,200" in payload["text"]
-    assert payload["ssml"] is None
-    assert payload["voice"] == "marin"
+    assert payload["ssml"].startswith("<speak")
+    assert payload["voice"] == "ar-AE-Rashid:DragonHDLatestNeural"
     assert out["delivery"]["status"] == "logged-locally"
 
 

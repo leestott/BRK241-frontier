@@ -318,7 +318,9 @@ Behaviour:
 | `AZURE_AI_PROJECT_ENDPOINT`   | Foundry project endpoint for text and voice agents     |
 | `AZURE_VOICE_AGENT_NAME`      | Published `kind: voice` agent; empty = offline mode     |
 | `AZURE_VOICE_AGENT_VERSION`   | Optional tested version; empty uses latest              |
-| `AZURE_VOICE_AGENT_VOICE`     | Native realtime voice configured at publish time (default `marin`) |
+| `AZURE_VOICE_AGENT_VOICE`     | Voice configured at publish time (default `ar-AE-Rashid:DragonHDLatestNeural`) |
+| `AZURE_VOICE_AGENT_VOICE_TYPE` | Voice provider (`azure-standard` by default) |
+| `AZURE_VOICE_AGENT_PREFER_LOCALES` | Preferred multilingual locales (`en-GB,ar-AE`) |
 | `AZURE_VOICE_AGENT_MODEL`     | Managed voice model configured at publish time (`gpt-realtime-2.1`) |
 | `FIBREOPS_VOICE_UPDATES`      | `1` = agents speak automatically; default `0` (UI only)  |
 
@@ -332,9 +334,11 @@ requires `azure-ai-projects<2.7` while Voice Agents Preview requires
 `azure-ai-projects>=2.7`. Authentication uses the web app managed identity;
 no API keys or bearer tokens are placed in the browser or tracked YAML.
 The project must support Voice Agents Preview and managed `gpt-realtime-2.1`.
-The agent uses native multilingual speech (`voice_type="openai"`, voice `marin`),
-not a British Azure TTS voice or a Polish-first locale list. Legacy Azure Neural
-voice overrides must be replaced before publishing; the publisher rejects them.
+The Dubai demo uses the UAE Arabic multilingual HD voice
+`ar-AE-Rashid:DragonHDLatestNeural` with `voice_type="azure-standard"` and
+preferred locales `en-GB,ar-AE`. The current Voice Live language support lists
+both English and Arabic for the `gpt-realtime` family. Real English and Arabic
+audio must be validated before acceptance.
 These are **source/publisher defaults**, not a claim that every existing deployment
 has been promoted. An app-only redeploy can deliberately retain an older pinned
 voice version. Check effective `session.updated` settings; never infer the live
@@ -366,8 +370,8 @@ agent version, updating `AZURE_VOICE_AGENT_VERSION`, and opening a new voice
 session in the browser. The English **Speak status** templates and offline
 browser-speech fallback are unchanged.
 
-Validate the publisher's serialized native-speech configuration with the isolated
-preview SDK (no Azure calls):
+Validate the publisher's serialized Voice Agents Preview audio configuration
+with the isolated preview SDK (no Azure calls):
 
 ```powershell
 .\.venv-voice\Scripts\python.exe -m unittest tests.test_voice_agent_publisher

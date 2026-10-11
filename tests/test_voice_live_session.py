@@ -55,9 +55,11 @@ def test_voice_definition_defaults_to_english_with_explicit_per_turn_overrides()
     assert "Awaria może dotyczyć" in instructions
 
 
-def test_voice_agent_defaults_to_native_multilingual_voice() -> None:
+def test_voice_agent_defaults_to_uae_arabic_multilingual_voice() -> None:
     field = config.Settings.model_fields["azure_voice_agent_voice"]
-    assert field.default == "marin"
+    assert field.default == "ar-AE-Rashid:DragonHDLatestNeural"
+    assert config.Settings.model_fields["azure_voice_agent_voice_type"].default == "azure-standard"
+    assert config.Settings.model_fields["azure_voice_agent_prefer_locales"].default == "en-GB,ar-AE"
 
 
 def test_build_upstream_url_unconfigured() -> None:

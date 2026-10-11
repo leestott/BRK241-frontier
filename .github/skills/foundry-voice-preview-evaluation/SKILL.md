@@ -42,8 +42,10 @@ code into this branch or promote a candidate without explicit approval.
    ```
 
 3. Publish a separate candidate with `AZURE_AI_PROJECT_ENDPOINT`,
-   `AZURE_VOICE_AGENT_NAME`, `AZURE_VOICE_AGENT_MODEL=gpt-realtime-2.1` and
-   `AZURE_VOICE_AGENT_VOICE=marin` set locally:
+   `AZURE_VOICE_AGENT_NAME`, `AZURE_VOICE_AGENT_MODEL=gpt-realtime-2.1`,
+   `AZURE_VOICE_AGENT_VOICE=ar-AE-Rashid:DragonHDLatestNeural`,
+   `AZURE_VOICE_AGENT_VOICE_TYPE=azure-standard`, and
+   `AZURE_VOICE_AGENT_PREFER_LOCALES=en-GB,ar-AE` set locally:
 
    ```powershell
    .\.venv-voice\Scripts\python.exe scripts\publish_voice_agent.py

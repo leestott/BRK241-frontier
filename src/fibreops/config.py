@@ -48,7 +48,13 @@ class Settings(BaseSettings):
     azure_voice_agent_name: Optional[str] = Field(default=None, alias="AZURE_VOICE_AGENT_NAME")
     azure_voice_agent_version: Optional[str] = Field(default=None, alias="AZURE_VOICE_AGENT_VERSION")
     azure_voice_agent_voice: str = Field(
-        default="marin", alias="AZURE_VOICE_AGENT_VOICE"
+        default="ar-AE-Rashid:DragonHDLatestNeural", alias="AZURE_VOICE_AGENT_VOICE"
+    )
+    azure_voice_agent_voice_type: str = Field(
+        default="azure-standard", alias="AZURE_VOICE_AGENT_VOICE_TYPE"
+    )
+    azure_voice_agent_prefer_locales: str = Field(
+        default="en-GB,ar-AE", alias="AZURE_VOICE_AGENT_PREFER_LOCALES"
     )
 
     # Foundry IQ — knowledge grounding (BRK241 slide 4 / slide 9).

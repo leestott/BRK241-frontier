@@ -108,6 +108,28 @@ _WEB_IQ_FIXTURES: list[dict[str, Any]] = [
         "source": "spenergynetworks.co.uk",
     },
     {
+        "keywords": ["dubai", "heat", "construction"],
+        "title": "Dubai utility works advisory — Internet City",
+        "snippet": (
+            "Planned utility works near Dubai Internet City include overnight "
+            "excavation. High ambient temperatures can also increase cabinet "
+            "cooling alarms; verify optical power before attributing a fibre fault."
+        ),
+        "url": "https://example.com/dubai/utility-works/internet-city",
+        "source": "dubai.ae",
+    },
+    {
+        "keywords": ["warsaw", "krakow", "roadworks", "poland"],
+        "title": "Poland fibre corridor maintenance advisory",
+        "snippet": (
+            "Roadworks are active near the Warsaw Mokotow and Krakow Zablocie "
+            "corridors. Field teams should confirm duct access and use OTDR "
+            "measurements before dispatching civil works."
+        ),
+        "url": "https://example.com/poland/fibre-corridor-maintenance",
+        "source": "gov.pl",
+    },
+    {
         "keywords": ["fibre", "splice", "best", "practice"],
         "title": "ITU-T G.652.D fusion splicing guidance",
         "snippet": (
@@ -132,6 +154,30 @@ _WORK_IQ_FIXTURES: list[dict[str, Any]] = [
         "source": "Fabric / Network Topology Lakehouse",
         "url": "fabric://workspaces/fibreops/lakehouses/topology/items/FN-LDN-001",
         "last_modified": "2026-03-14",
+    },
+    {
+        "keywords": ["fn-dxb-009", "fn-dxb-021", "dubai"],
+        "title": "Dubai metro and cable-landing topology",
+        "snippet": (
+            "FN-DXB-009 serves 9,500 customers from Dubai Internet City. "
+            "FN-DXB-021 serves 4,800 customers at the Jebel Ali cable landing "
+            "station and uses FN-DXB-009 as its upstream metro route."
+        ),
+        "source": "Fabric / Network Topology Lakehouse",
+        "url": "fabric://workspaces/fibreops/lakehouses/topology/items/FN-DXB-009",
+        "last_modified": "2026-09-18",
+    },
+    {
+        "keywords": ["fn-waw-004", "fn-krk-006", "warsaw", "krakow", "poland"],
+        "title": "Poland metro topology and access notes",
+        "snippet": (
+            "FN-WAW-004 at Mokotow Exchange serves 7,200 customers. "
+            "FN-KRK-006 at Zablocie Distribution Hub serves 2,800 customers. "
+            "Both sites require local access coordination before field work."
+        ),
+        "source": "Fabric / Network Topology Lakehouse",
+        "url": "fabric://workspaces/fibreops/lakehouses/topology/items/FN-WAW-004",
+        "last_modified": "2026-09-22",
     },
     {
         "keywords": ["sla", "customer", "platinum"],

@@ -1,0 +1,48 @@
+{
+  "environment": "fibreops-example",
+  "agent": "fibreops-noc-voice",
+  "agentVersion": "3",
+  "model": "gpt-realtime-2.1-global-standard",
+  "voice": "ar-AE-Rashid:DragonHDLatestNeural",
+  "voiceType": "azure-standard",
+  "preferredLocales": [
+    "en-GB",
+    "ar-AE"
+  ],
+  "humanListeningApproved": false,
+  "audioAcceptance": {
+    "expectedTurns": 48,
+    "completedTurns": 48,
+    "silentOrMissingTurns": 0
+  },
+  "evaluation": {
+    "evaluationId": "eval_example",
+    "runId": "evalrun_example",
+    "runName": "voice-v3-uae-bilingual-48",
+    "status": "Completed",
+    "total": 48,
+    "passed": 48,
+    "failed": 0,
+    "errored": 0,
+    "skipped": 0,
+    "evaluators": {
+      "coherence": {
+        "passed": 48,
+        "failed": 0
+      },
+      "fluency": {
+        "passed": 48,
+        "failed": 0
+      },
+      "relevance": {
+        "passed": 48,
+        "failed": 0
+      },
+      "indirect_attack": {
+        "passed": 48,
+        "failed": 0
+      }
+    },
+    "reportUrl": "https://ai.azure.com/nextgen/r/example-portal-resource,rg-fibreops-example,,fibreops-foundry-example,fibreops-agents/build/evaluations/eval_example/run/evalrun_example"
+  }
+}

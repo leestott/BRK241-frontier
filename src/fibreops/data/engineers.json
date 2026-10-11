@@ -38,5 +38,29 @@
     "skills": ["splicing", "OTDR", "civils"],
     "on_shift": true,
     "distance_km_from_node": {"FN-BRS-002": 5.5, "FN-CRD-005": 22.0}
+  },
+  {
+    "engineer_id": "ENG-5104",
+    "name": "Noor Al Mansoori",
+    "region": "Dubai",
+    "skills": ["splicing", "OTDR", "subsea"],
+    "on_shift": true,
+    "distance_km_from_node": {"FN-DXB-009": 7.2, "FN-DXB-021": 18.5}
+  },
+  {
+    "engineer_id": "ENG-6207",
+    "name": "Piotr Kowalski",
+    "region": "Warsaw",
+    "skills": ["splicing", "OTDR", "DWDM"],
+    "on_shift": true,
+    "distance_km_from_node": {"FN-WAW-004": 5.1}
+  },
+  {
+    "engineer_id": "ENG-6312",
+    "name": "Anna Nowak",
+    "region": "Krakow",
+    "skills": ["splicing", "OTDR"],
+    "on_shift": true,
+    "distance_km_from_node": {"FN-KRK-006": 4.6}
   }
 ]

@@ -23,12 +23,30 @@ def test_lookup_node_normalises_spoken_identifier_variants():
     assert lookup_node("fn_man_007.") == expected
 
 
+def test_lookup_node_includes_dubai_and_poland_examples():
+    dubai = lookup_node("FN DXB 009")
+    warsaw = lookup_node("fn-waw-004")
+
+    assert dubai["site"] == "Dubai Internet City Exchange"
+    assert dubai["criticality"] == "critical"
+    assert warsaw["region"] == "Warsaw"
+    assert warsaw["customers_served"] == 7200
+
+
 def test_find_best_engineer_prefers_on_shift_in_region():
     res = find_best_engineer("FN-LDN-001", ["splicing"])
     assert res["engineer"] is not None
     assert res["engineer"]["region"] == "London"
     assert res["engineer"]["on_shift"] is True
     assert res["eta_minutes"] >= 15
+
+
+def test_find_best_engineer_covers_dubai_and_poland_nodes():
+    dubai = find_best_engineer("FN-DXB-021", ["subsea"])
+    poland = find_best_engineer("FN-WAW-004", ["DWDM"])
+
+    assert dubai["engineer"]["name"] == "Noor Al Mansoori"
+    assert poland["engineer"]["name"] == "Piotr Kowalski"
 
 
 def test_memory_round_trip(tmp_path, monkeypatch):

@@ -57,8 +57,18 @@ param azureVoiceAgentName string = ''
 @description('Published voice-agent version; empty uses the latest.')
 param azureVoiceAgentVersion string = ''
 
-@description('Native realtime voice for the separately published voice agent.')
-param azureVoiceAgentVoice string = 'marin'
+@description('Voice name for the separately published Voice Agents Preview agent.')
+param azureVoiceAgentVoice string = 'ar-AE-Rashid:DragonHDLatestNeural'
+
+@description('Voice output provider type for the separately published voice agent.')
+@allowed([
+  'openai'
+  'azure-standard'
+])
+param azureVoiceAgentVoiceType string = 'azure-standard'
+
+@description('Comma-separated preferred locales for multilingual Azure voice output.')
+param azureVoiceAgentPreferLocales string = 'en-GB,ar-AE'
 
 @description('Single-tenant Entra app registration client ID for App Service sign-in.')
 param entraClientId string
@@ -370,6 +380,8 @@ resource web 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'AZURE_VOICE_AGENT_NAME', value: azureVoiceAgentName }
         { name: 'AZURE_VOICE_AGENT_VERSION', value: azureVoiceAgentVersion }
         { name: 'AZURE_VOICE_AGENT_VOICE', value: azureVoiceAgentVoice }
+        { name: 'AZURE_VOICE_AGENT_VOICE_TYPE', value: azureVoiceAgentVoiceType }
+        { name: 'AZURE_VOICE_AGENT_PREFER_LOCALES', value: azureVoiceAgentPreferLocales }
         { name: 'FOUNDRY_IQ_SEARCH_ENDPOINT', value: resolvedSearchEndpoint }
         { name: 'FOUNDRY_IQ_KNOWLEDGE_BASE', value: provisionFoundryIq ? foundryIqKnowledgeBase : '' }
         { name: 'FOUNDRY_IQ_MCP_CONNECTION', value: provisionFoundryIq ? 'fibreops-kb-mcp' : '' }

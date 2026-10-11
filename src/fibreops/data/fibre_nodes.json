@@ -4,5 +4,9 @@
   {"node_id": "FN-MAN-007", "region": "Manchester", "site": "Trafford Exchange", "upstream": null, "customers_served": 6300, "criticality": "high"},
   {"node_id": "FN-EDI-003", "region": "Edinburgh", "site": "Leith Distribution", "upstream": null, "customers_served": 2200, "criticality": "medium"},
   {"node_id": "FN-BRS-002", "region": "Bristol", "site": "Temple Quay Hub", "upstream": null, "customers_served": 4100, "criticality": "medium"},
-  {"node_id": "FN-CRD-005", "region": "Cardiff", "site": "Bay Cabinet 5", "upstream": "FN-BRS-002", "customers_served": 900, "criticality": "low"}
+  {"node_id": "FN-CRD-005", "region": "Cardiff", "site": "Bay Cabinet 5", "upstream": "FN-BRS-002", "customers_served": 900, "criticality": "low"},
+  {"node_id": "FN-DXB-009", "region": "Dubai", "site": "Dubai Internet City Exchange", "upstream": null, "customers_served": 9500, "criticality": "critical"},
+  {"node_id": "FN-DXB-021", "region": "Dubai", "site": "Jebel Ali Cable Landing Station", "upstream": "FN-DXB-009", "customers_served": 4800, "criticality": "high"},
+  {"node_id": "FN-WAW-004", "region": "Warsaw", "site": "Mokotow Exchange", "upstream": null, "customers_served": 7200, "criticality": "critical"},
+  {"node_id": "FN-KRK-006", "region": "Krakow", "site": "Zablocie Distribution Hub", "upstream": null, "customers_served": 2800, "criticality": "medium"}
 ]
