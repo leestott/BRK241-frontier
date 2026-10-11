@@ -7,6 +7,18 @@ from urllib.parse import unquote, urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_test_readme_inventory_matches_current_test_files():
+    tests = ROOT / "tests"
+    text = (tests / "README.md").read_text(encoding="utf-8")
+    listed = re.findall(r"^\| `(test_[^`]+)` \|", text, re.MULTILINE)
+    actual = {
+        path.name for path in tests.glob("test_*")
+        if path.is_file() and path.suffix in {".py", ".cjs"}
+    }
+    assert len(listed) == len(set(listed)), "Duplicate test inventory rows"
+    assert set(listed) == actual
+
+
 def test_contributor_workflow_is_explicitly_offline_and_checks_dependencies():
     text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     assert '-m pip install -e . --no-deps' in text
