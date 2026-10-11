@@ -67,7 +67,8 @@ def build_definition(
                     model="whisper-1",
                     prompt=(
                         "Network operations in English, Polish, and Arabic: Dubai, cause, "
-                        "unconfirmed cause, optical signal, attenuation, and fibre."
+                        "unconfirmed cause, optical signal, attenuation, fibre, dark polls, "
+                        "FN-LDN-001, FN-CRD-005, INC-DEMO-CRITICAL, and Bay Cabinet 5."
                     ),
                 ),
                 turn_detection=VoiceAgentServerVadTurnDetection(

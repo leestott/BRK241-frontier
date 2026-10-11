@@ -27,6 +27,8 @@ class VoiceAgentPublisherTests(unittest.TestCase):
         transcription = definition["audio"]["input"]["transcription"]
         self.assertEqual(transcription["model"], "whisper-1")
         self.assertIn("English, Polish, and Arabic", transcription["prompt"])
+        self.assertIn("FN-LDN-001", transcription["prompt"])
+        self.assertIn("dark polls", transcription["prompt"])
         self.assertIsNone(transcription.get("language"))
         self.assertIsNone(transcription.get("languages"))
         self.assertTrue(definition["audio"]["input"]["turn_detection"]["create_response"])
@@ -34,6 +36,9 @@ class VoiceAgentPublisherTests(unittest.TestCase):
         self.assertIn("Answer directly without announcing the chosen language", definition["instructions"])
         self.assertIn("without adding causal links or new facts", definition["instructions"])
         self.assertIn("keep one-sentence requests to a single sentence", definition["instructions"])
+        self.assertIn("Treat compact network identifiers as immutable tokens", definition["instructions"])
+        self.assertIn("'FN LDN zero zero one' means 'FN-LDN-001'", definition["instructions"])
+        self.assertIn("ask for confirmation instead of guessing", definition["instructions"])
         self.assertEqual(len(definition["tools"]), 5)
 
     def test_explicit_native_voice_does_not_add_locale_bias(self) -> None:
