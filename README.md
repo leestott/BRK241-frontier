@@ -438,6 +438,14 @@ $env:PF_WORKER_COUNT = "2"
   --output-dir state\voice-sdk-evaluation
 ```
 
+On the separate voice candidate branch, the evaluator caches Entra tokens per
+worker and scope, refreshes them five minutes before expiry, and allows up to
+60 seconds for developer-credential subprocesses. Cached tokens and credential
+objects are excluded from evaluator serialization. The language-contract
+evaluator is natively asynchronous, so the SDK owns its event loop rather than
+starting and closing a new loop for every row. These changes do not alter judge
+prompts, thresholds, recorded failures, or the production voice pin.
+
 The SDK runs built-in Fluency and Coherence evaluators with reasoning-model support,
 plus a custom evaluator for response language, semantic accuracy, natural language,
 and input recognition. **Every row** must score at least 4/5 for fluency/coherence

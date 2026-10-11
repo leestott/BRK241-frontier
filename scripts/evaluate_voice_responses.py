@@ -7,13 +7,15 @@ import json
 import math
 import time
 from pathlib import Path
+from threading import Lock
+from typing import Any
 from urllib.parse import quote, urlparse
 
 import httpx
 from azure.ai.evaluation import CoherenceEvaluator, FluencyEvaluator, evaluate
 from azure.ai.projects import AIProjectClient
+from azure.core.credentials import AccessToken
 from azure.identity import DefaultAzureCredential
-from azure.identity.aio import DefaultAzureCredential as AsyncCredential
 
 from scripts.validate_voice_audio import CASES, Case, judge
 
@@ -27,27 +29,66 @@ THRESHOLDS = {
 }
 
 
+class EvaluationCredential:
+    """Cache tokens across legacy judge calls without serializing credentials."""
+
+    def __init__(self) -> None:
+        self._credential: DefaultAzureCredential | None = None
+        self._tokens: dict[tuple[str, ...], AccessToken] = {}
+        self._lock = Lock()
+
+    def __getstate__(self) -> dict:
+        return {}
+
+    def __setstate__(self, state: dict) -> None:
+        self.__init__()
+
+    def get_token(self, *scopes: str, **kwargs: Any) -> AccessToken:
+        with self._lock:
+            if self._credential is None:
+                self._credential = DefaultAzureCredential(process_timeout=60)
+            token = self._tokens.get(scopes) if not kwargs else None
+            if token is None or token.expires_on <= time.time() + 300:
+                token = self._credential.get_token(*scopes, **kwargs)
+                if not kwargs:
+                    self._tokens[scopes] = token
+            return token
+
+    def close(self) -> None:
+        with self._lock:
+            if self._credential is not None:
+                self._credential.close()
+                self._credential = None
+            self._tokens.clear()
+
+    def __enter__(self) -> EvaluationCredential:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.close()
+
+
 class VoiceLanguageContractEvaluator:
     """SDK custom evaluator for language, semantic fidelity and transcription."""
 
     def __init__(self, endpoint: str, model: str):
         self.endpoint = endpoint
         self.model = model
+        self.credential = EvaluationCredential()
 
-    def __call__(
+    async def __call__(
         self, *, query: str, response: str, expected_language: str,
         expected_meaning: str, input_transcript: str, **kwargs,
     ) -> dict:
-        async def assess() -> dict:
-            async with AsyncCredential() as credential, httpx.AsyncClient(timeout=90) as client:
-                token = (await credential.get_token("https://cognitiveservices.azure.com/.default")).token
-                return await judge(
-                    client, self.endpoint, token, self.model,
-                    Case("sdk-evaluation", "", expected_language, query, expected_meaning),
-                    input_transcript, response,
-                )
-
-        assessment = asyncio.run(assess())
+        token = await asyncio.to_thread(
+            self.credential.get_token, "https://cognitiveservices.azure.com/.default",
+        )
+        async with httpx.AsyncClient(timeout=90) as client:
+            assessment = await judge(
+                client, self.endpoint, token.token, self.model,
+                Case("sdk-evaluation", "", expected_language, query, expected_meaning),
+                input_transcript, response,
+            )
         return {
             "language_match": int(assessment["language_ok"]),
             "semantic_accuracy": int(assessment["meaning_ok"]),
@@ -250,7 +291,7 @@ def main() -> None:
         "azure_deployment": args.judge_model,
         "api_version": "2025-04-01-preview",
     }
-    with DefaultAzureCredential() as credential:
+    with EvaluationCredential() as credential:
         result = json.loads(args.sdk_results.read_text(encoding="utf-8")) if args.sdk_results else evaluate(
             data=str(data_path),
             evaluation_name=f"{report['agent']}-v{report['version']}-spoken-language",
