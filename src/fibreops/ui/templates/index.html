@@ -257,7 +257,7 @@
   </main>
 
   <footer class="text-center text-xs text-slate-500 py-4 font-mono">
-    FOUNDRY · ENDPOINT · <span>{{ foundry_endpoint }}</span>
+    FOUNDRY · <span>{{ "CONNECTED" if foundry_connected else "OFFLINE" }}</span>
   </footer>
 
 </body>

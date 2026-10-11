@@ -54,6 +54,38 @@ param azureAiModelCapacity int = 200
 @description('Published Foundry Voice Agent name. Empty until the preview agent is created.')
 param azureVoiceAgentName string = ''
 
+@description('Provision a dedicated Foundry project on the Voice Live account for an explicit realtime model deployment.')
+param provisionVoiceProject bool = true
+
+@description('Dedicated voice project name. Empty derives <namePrefix>-voice-agents.')
+param voiceProjectName string = ''
+
+@description('Dedicated voice project display name.')
+param voiceProjectDisplayName string = 'FibreOps voice agents'
+
+@description('Optional dedicated voice project endpoint. Empty derives it when provisionVoiceProject is enabled.')
+param azureVoiceProjectEndpoint string = ''
+
+@description('Voice agent realtime model or deployment name.')
+param azureVoiceAgentModel string = 'gpt-realtime-2.1'
+
+@description('Voice model resolution mode.')
+@allowed([
+  'managed'
+  'self_deployed'
+])
+param azureVoiceAgentModelType string = 'self_deployed'
+
+@description('Voice agent realtime model version used for a self-deployed model.')
+param azureVoiceAgentModelVersion string = '2026-07-07'
+
+@description('Voice agent realtime model deployment SKU.')
+param azureVoiceAgentModelSku string = 'GlobalStandard'
+
+@description('Voice agent realtime model deployment capacity.')
+@minValue(1)
+param azureVoiceAgentModelCapacity int = 1
+
 @description('Published voice-agent version; empty uses the latest.')
 param azureVoiceAgentVersion string = ''
 
@@ -131,6 +163,7 @@ var planName = '${namePrefix}-plan-${suffix}'
 var webName = toLower('${namePrefix}-noc-${substring(suffix, 0, 6)}')
 var searchName = toLower('${namePrefix}-search-${substring(suffix, 0, 8)}')
 var voiceLiveAccountName = toLower('${namePrefix}-aisvc-${substring(suffix, 0, 6)}')
+var resolvedVoiceProjectName = empty(voiceProjectName) ? '${namePrefix}-voice-agents' : voiceProjectName
 var resolvedFoundryAccountName = empty(foundryAccountName)
   ? toLower('${namePrefix}-foundry-${substring(suffix, 0, 6)}')
   : foundryAccountName
@@ -225,16 +258,46 @@ resource eh 'Microsoft.EventHub/namespaces/eventhubs@2024-01-01' = {
 // Azure AI Services (multi-service) account — provides Voice Live realtime
 // Speech endpoint. Conditional so operators can BYO via azureVoiceLiveEndpoint
 // (e.g. an existing AIFoundry / Speech account in another resource group).
-resource voiceLiveAccount 'Microsoft.CognitiveServices/accounts@2024-10-01' = if (provisionVoiceLive) {
+resource voiceLiveAccount 'Microsoft.CognitiveServices/accounts@2025-06-01' = if (provisionVoiceLive) {
   name: voiceLiveAccountName
   location: voiceLiveRegion
   kind: 'AIServices'
   sku: { name: voiceLiveSku }
   identity: { type: 'SystemAssigned' }
   properties: {
+    allowProjectManagement: provisionVoiceProject
     customSubDomainName: voiceLiveAccountName
     publicNetworkAccess: 'Enabled'
     disableLocalAuth: false
+  }
+}
+
+resource voiceProject 'Microsoft.CognitiveServices/accounts/projects@2025-06-01' = if (provisionVoiceLive && provisionVoiceProject) {
+  parent: voiceLiveAccount
+  name: resolvedVoiceProjectName
+  location: voiceLiveRegion
+  identity: { type: 'SystemAssigned' }
+  properties: {
+    displayName: voiceProjectDisplayName
+  }
+}
+
+resource voiceModel 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = if (provisionVoiceLive && provisionVoiceProject && azureVoiceAgentModelType == 'self_deployed') {
+  parent: voiceLiveAccount
+  name: azureVoiceAgentModel
+  dependsOn: [
+    voiceProject
+  ]
+  sku: {
+    name: azureVoiceAgentModelSku
+    capacity: azureVoiceAgentModelCapacity
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: azureVoiceAgentModel
+      version: azureVoiceAgentModelVersion
+    }
   }
 }
 
@@ -245,6 +308,11 @@ var resolvedVoiceLiveEndpoint = !empty(azureVoiceLiveEndpoint)
 var resolvedVoiceLiveKey = !empty(azureVoiceLiveApiKey)
   ? azureVoiceLiveApiKey
   : (provisionVoiceLive ? voiceLiveAccount.listKeys().key1 : '')
+var resolvedVoiceProjectEndpoint = !empty(azureVoiceProjectEndpoint)
+  ? azureVoiceProjectEndpoint
+  : (provisionVoiceLive && provisionVoiceProject
+      ? 'https://${voiceLiveAccountName}.services.ai.azure.com/api/projects/${resolvedVoiceProjectName}'
+      : resolvedProjectEndpoint)
 
 resource kv 'Microsoft.KeyVault/vaults@2024-11-01' = {
   name: kvName
@@ -369,6 +437,7 @@ resource web 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'FIBREOPS_HOSTED_AGENT_NAME', value: fibreopsHostedAgentName }
         { name: 'AZURE_AI_PROJECT_ENDPOINT', value: resolvedProjectEndpoint }
         { name: 'AZURE_AI_MODEL_DEPLOYMENT', value: azureAiModelDeployment }
+        { name: 'AZURE_VOICE_PROJECT_ENDPOINT', value: resolvedVoiceProjectEndpoint }
         { name: 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET', value: '@Microsoft.KeyVault(VaultName=${kv.name};SecretName=${entraAuthSecret.name})' }
         { name: 'EVENT_HUB_FQDN', value: '${ehNamespace.name}.servicebus.windows.net' }
         { name: 'EVENT_HUB_NAME', value: eh.name }
@@ -379,6 +448,8 @@ resource web 'Microsoft.Web/sites@2024-04-01' = {
         { name: 'KEY_VAULT_NAME', value: kv.name }
         { name: 'AZURE_VOICE_AGENT_NAME', value: azureVoiceAgentName }
         { name: 'AZURE_VOICE_AGENT_VERSION', value: azureVoiceAgentVersion }
+        { name: 'AZURE_VOICE_AGENT_MODEL', value: azureVoiceAgentModel }
+        { name: 'AZURE_VOICE_AGENT_MODEL_TYPE', value: azureVoiceAgentModelType }
         { name: 'AZURE_VOICE_AGENT_VOICE', value: azureVoiceAgentVoice }
         { name: 'AZURE_VOICE_AGENT_VOICE_TYPE', value: azureVoiceAgentVoiceType }
         { name: 'AZURE_VOICE_AGENT_PREFER_LOCALES', value: azureVoiceAgentPreferLocales }
@@ -440,6 +511,7 @@ resource webAuth 'Microsoft.Web/sites/config@2022-09-01' = {
 output AZURE_LOCATION string = location
 output AZURE_RESOURCE_GROUP string = resourceGroup().name
 output AZURE_AI_PROJECT_ENDPOINT string = resolvedProjectEndpoint
+output AZURE_VOICE_PROJECT_ENDPOINT string = resolvedVoiceProjectEndpoint
 output AZURE_FOUNDRY_ACCOUNT_NAME string = foundryAccount.name
 output AZURE_FOUNDRY_PROJECT_NAME string = foundryProject.name
 output AZURE_APP_SERVICE_PLAN_NAME string = plan.name
@@ -461,3 +533,6 @@ output AZURE_LOG_ANALYTICS_WORKSPACE_ID string = law.id
 output AZURE_VOICE_LIVE_ACCOUNT_NAME string = provisionVoiceLive ? voiceLiveAccount.name : ''
 output AZURE_VOICE_LIVE_ACCOUNT_ID string = provisionVoiceLive ? voiceLiveAccount.id : ''
 output AZURE_VOICE_LIVE_ENDPOINT string = resolvedVoiceLiveEndpoint
+output AZURE_VOICE_PROJECT_NAME string = provisionVoiceLive && provisionVoiceProject ? resolvedVoiceProjectName : ''
+output AZURE_VOICE_AGENT_MODEL string = azureVoiceAgentModel
+output AZURE_VOICE_AGENT_MODEL_TYPE string = azureVoiceAgentModelType

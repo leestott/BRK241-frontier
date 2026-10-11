@@ -27,13 +27,16 @@ _ALLOWED_EVENTS = {
 
 def build_upstream_url(settings: Settings | None = None) -> str | None:
     settings = settings or get_settings()
-    endpoint = settings.azure_ai_project_endpoint
+    endpoint = settings.azure_voice_project_endpoint or settings.azure_ai_project_endpoint
     name = settings.azure_voice_agent_name
     if not endpoint or not name:
         return None
     parsed = urlparse(endpoint)
     if parsed.scheme != "https" or not parsed.netloc or not parsed.path.startswith("/api/projects/"):
-        raise ValueError("AZURE_AI_PROJECT_ENDPOINT must be a Foundry HTTPS project endpoint")
+        raise ValueError(
+            "AZURE_VOICE_PROJECT_ENDPOINT or AZURE_AI_PROJECT_ENDPOINT must be "
+            "a Foundry HTTPS project endpoint"
+        )
     query = {"api-version": "v1"}
     if settings.azure_voice_agent_version:
         query["x-agent-version-override"] = settings.azure_voice_agent_version
@@ -45,7 +48,8 @@ def build_upstream_url(settings: Settings | None = None) -> str | None:
 
 def session_descriptor(settings: Settings | None = None) -> dict[str, Any]:
     settings = settings or get_settings()
-    enabled = bool(settings.azure_ai_project_endpoint and settings.azure_voice_agent_name)
+    endpoint = settings.azure_voice_project_endpoint or settings.azure_ai_project_endpoint
+    enabled = bool(endpoint and settings.azure_voice_agent_name)
     return {
         "enabled": enabled,
         "ws_path": "/ws/voice" if enabled else None,

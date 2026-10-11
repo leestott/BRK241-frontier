@@ -19,6 +19,7 @@ class VoiceAgentPublisherTests(unittest.TestCase):
 
         self.assertEqual(definition["kind"], "voice")
         self.assertEqual(definition["model"], "gpt-realtime-2.1")
+        self.assertEqual(definition["model_type"], "managed")
         self.assertEqual(output["voice"], "ar-AE-Rashid:DragonHDLatestNeural")
         self.assertEqual(output["voice_type"], "azure-standard")
         self.assertEqual(output["prefer_locales"], ["en-GB", "ar-AE"])
@@ -47,6 +48,14 @@ class VoiceAgentPublisherTests(unittest.TestCase):
         self.assertEqual(output["voice"], "cedar")
         self.assertIsNone(output.get("prefer_locales"))
         self.assertIsNone(output.get("voice_locale"))
+
+    def test_self_deployed_definition_uses_explicit_deployment(self) -> None:
+        from scripts.publish_voice_agent import build_definition
+
+        definition = build_definition(model_type="self_deployed").as_dict()
+
+        self.assertEqual(definition["model"], "gpt-realtime-2.1")
+        self.assertEqual(definition["model_type"], "self_deployed")
 
     def test_invalid_voice_type_is_rejected_before_publishing(self) -> None:
         from scripts.publish_voice_agent import build_definition

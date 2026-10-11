@@ -100,6 +100,8 @@ def _extract_text(response: Any) -> str:
 # record's `decision` field and the NOC console, so strip them before storing.
 _ROUTING_TOKEN_RE = re.compile(r"\bto=\s*\w+", re.IGNORECASE)
 _NON_DECISION_RE = re.compile(r"[^\x09\x0a\x0d\x20-\x7e]+")
+_TOOL_CALL_RE = re.compile(r"\b(?:create_ticket|post_outage_notice)\s*\(", re.IGNORECASE)
+_DECISION_WORD_RE = re.compile(r"\b(?:dispatch|monitor|escalat\w*|handoff)\b", re.IGNORECASE)
 
 
 def _sanitise_decision(coord_text: str, decision_label: str) -> str:
@@ -110,20 +112,25 @@ def _sanitise_decision(coord_text: str, decision_label: str) -> str:
     intelligible survives.
     """
     text = coord_text or ""
-    # Preserve any structured JSON payload the model produced verbatim.
+    if _TOOL_CALL_RE.search(text):
+        return decision_label
     brace = text.find("{")
-    payload = text[brace:] if brace != -1 else ""
     head = text[:brace] if brace != -1 else text
     head = _ROUTING_TOKEN_RE.sub(" ", head)
     head = _NON_DECISION_RE.sub(" ", head)
     head = re.sub(r"[?=]{1,}", " ", head)
     head = re.sub(r"\s+", " ", head).strip()
-    if not payload and not re.search(r"[A-Za-z0-9]", head):
+    if head.lower() in {"code", "json", "python", "javascript"}:
+        return decision_label
+    if brace != -1:
+        return head if _DECISION_WORD_RE.search(head) else decision_label
+    if not _DECISION_WORD_RE.search(head):
+        return decision_label
+    if not re.search(r"[A-Za-z0-9]", head):
         # Only punctuation/quote residue survived (e.g. a stray `""`); the text
         # carried no real decision, so use the derived label instead.
         return decision_label
-    cleaned = (f"{head} {payload}".strip()) if payload else head
-    return cleaned or decision_label
+    return head or decision_label
 
 
 def _parse_analysis_json(text: str) -> dict[str, Any]:
@@ -139,6 +146,7 @@ def _parse_analysis_json(text: str) -> dict[str, Any]:
 
 
 _VALID_SEVERITIES = {"low", "medium", "high", "critical"}
+_SEVERITY_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 
 def _normalise_analysis(raw: dict[str, Any]) -> dict[str, Any]:
     """Normalise LLM output to the expected lowercase snake_case schema.
@@ -176,6 +184,78 @@ def _normalise_analysis(raw: dict[str, Any]) -> dict[str, Any]:
         "sop_refs": list(_get("sop_refs", "SOP Refs", "sop references", "references", default=[]) or []),
         "knowledge": _get("knowledge", "Knowledge", default={}),
     }
+
+
+def _preserve_signal_facts(
+    analysis: dict[str, Any],
+    signal: TelemetrySignal,
+    node_context: dict[str, Any],
+) -> dict[str, Any]:
+    """Fill placeholder analysis fields from recorded signal and node facts."""
+    result = dict(analysis)
+    signal_severity = signal.severity.value
+    if _SEVERITY_RANK[result["severity"]] < _SEVERITY_RANK[signal_severity]:
+        result["severity"] = signal_severity
+
+    site = str(node_context.get("site") or signal.node_id)
+    customers = int(node_context.get("customers_served") or 0)
+    signal_name = signal.signal_type.value.replace("_", " ")
+    measurement = f"{signal.measured_value:g} {signal.unit}".strip()
+    dark_polls = signal.raw.get("consecutive_polls_dark")
+    poll_detail = f" across {dark_polls} consecutive dark polls" if dark_polls else ""
+
+    def _is_placeholder(value: Any) -> bool:
+        text = str(value or "").strip().lower()
+        return (
+            text in {"", "incident detected", "unknown"}
+            or text.startswith("unable to complete")
+            or text.startswith("insufficient grounded evidence")
+            or "not available in the current tool context" in text
+        )
+
+    if _is_placeholder(result["summary"]):
+        result["summary"] = (
+            f"{signal_severity.title()} {signal_name} detected at {site} "
+            f"({signal.node_id}): {measurement}{poll_detail}."
+        )
+    impact_digits = re.sub(r"\D", "", str(result["customer_impact"]))
+    if _is_placeholder(result["customer_impact"]) or (
+        customers and str(customers) not in impact_digits
+    ):
+        result["customer_impact"] = (
+            f"Potential service impact for up to {customers:,} customers served by "
+            f"{signal.node_id}."
+        )
+    if _is_placeholder(result["probable_cause"]):
+        if signal.signal_type.value == "loss_of_light":
+            result["probable_cause"] = (
+                "Possible fibre cut, optical path failure, or upstream equipment fault; "
+                "diagnostics are required to confirm the cause."
+            )
+        else:
+            result["probable_cause"] = (
+                f"The {signal_name} telemetry requires network and field diagnostics "
+                "before a root cause can be confirmed."
+            )
+    if not result["recommended_actions"]:
+        result["recommended_actions"] = [
+            f"Verify telemetry and active alarms for {signal.node_id}.",
+            f"Inspect the optical path and upstream equipment serving {site}.",
+            "Escalate to field engineering and maintain NOC updates until service is stable.",
+        ]
+    return result
+
+
+def _requires_dispatch(
+    coordinator_text: str,
+    severity: Severity,
+    auto_dispatch: bool,
+) -> bool:
+    return (
+        "HANDOFF:DISPATCH" in coordinator_text
+        or severity in (Severity.HIGH, Severity.CRITICAL)
+        or auto_dispatch
+    )
 
 
 async def handle_signal(signal: TelemetrySignal) -> dict[str, Any]:
@@ -229,6 +309,7 @@ async def handle_signal(signal: TelemetrySignal) -> dict[str, Any]:
             response = await _agent_run(analysis_agent, analysis_prompt)
             text = _extract_text(response)
             analysis = _parse_analysis_json(text)
+            analysis = _preserve_signal_facts(analysis, signal, node_ctx)
             # Populate the NOC "Knowledge sources" pane with real Foundry IQ
             # grounding regardless of backend. In hosted mode the agent's MCP
             # retrieval runs server-side, so record an in-app lookup here too.
@@ -322,16 +403,18 @@ async def handle_signal(signal: TelemetrySignal) -> dict[str, Any]:
                     )
                 except Exception as exc:
                     logger.warning("Orchestrator D365/Teams fallback failed: %s", exc)
-            decision_label = "DISPATCH" if "HANDOFF:DISPATCH" in coord_text else "MONITOR"
+            should_dispatch = _requires_dispatch(
+                coord_text,
+                incident.severity,
+                get_settings().auto_dispatch,
+            )
+            decision_label = "DISPATCH" if should_dispatch else "MONITOR"
             clean_decision = _sanitise_decision(coord_text, decision_label)
             record["steps"].append(
                 {"agent": "NetOpsCoordinatorAgent", "decision": clean_decision, "ticket": ticket}
             )
             span.set_attribute("decision", decision_label)
             span.set_attribute("coordinator.decision", clean_decision[:80])
-            should_dispatch = "HANDOFF:DISPATCH" in coord_text or (
-                get_settings().auto_dispatch and incident.severity in (Severity.HIGH, Severity.CRITICAL)
-            )
 
         wrap_span.set_attribute("decision", decision_label)
         wrap_span.set_attribute("dispatched", bool(should_dispatch and ticket))

@@ -388,7 +388,7 @@ def create_app() -> FastAPI:
             {
                 "backend": settings.agent_backend,
                 "auto_dispatch": settings.auto_dispatch,
-                "foundry_endpoint": settings.azure_ai_project_endpoint or "(not configured)",
+                "foundry_connected": settings.foundry_enabled,
                 "teams_enabled": settings.teams_enabled,
                 "voice_live_enabled": settings.voice_live_enabled,
                 "netops_routine": settings.netops_routine_enabled,

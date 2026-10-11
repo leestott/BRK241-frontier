@@ -62,6 +62,22 @@ function Test-Phase([string]$Name) {
         return $false
     }
     if ($env:FIBREOPS_RESUME_DEPLOYMENT -eq "true" -and $phaseState[$Name] -eq "complete") {
+        if (
+            $Name -eq "prompt" -and
+            $env:FIBREOPS_SKIP_PUBLISH -ne "true" -and
+            $ResourceGroup -and
+            $env:AZURE_APP_SERVICE_NAME
+        ) {
+            $publishedAgents = az webapp config appsettings list `
+                --resource-group $ResourceGroup `
+                --name $env:AZURE_APP_SERVICE_NAME `
+                --query "[?name=='FIBREOPS_PUBLISHED_AGENTS'].value | [0]" `
+                --output tsv 2>$null
+            if (-not $publishedAgents) {
+                Write-Host "Phase 'prompt' state is stale; App Service has no published-agent registry." -ForegroundColor Yellow
+                return $true
+            }
+        }
         Write-Host "Phase '$Name' already completed; resume mode is skipping it." -ForegroundColor Yellow
         return $false
     }
@@ -207,7 +223,11 @@ Complete-Phase "hosted"
 # Voice Agents Preview requires azure-ai-projects>=2.7 while Agent Framework
 # currently requires <2.7. Publish from a separate, ignored environment.
 if (Test-Phase "voice") {
-if ($env:FIBREOPS_PUBLISH_VOICE -eq 'true') {
+$voiceProjectProvisioned = $env:PROVISION_VOICE_PROJECT -ne 'false'
+$publishVoice = $env:FIBREOPS_PUBLISH_VOICE -eq 'true' -or (
+    $env:FIBREOPS_PUBLISH_VOICE -ne 'false' -and $voiceProjectProvisioned
+)
+if ($publishVoice) {
     $voiceName = $env:AZURE_VOICE_AGENT_NAME
     if (-not $voiceName) { $voiceName = 'fibreops-noc-voice' }
     $env:AZURE_VOICE_AGENT_NAME = $voiceName
@@ -232,13 +252,19 @@ if ($env:FIBREOPS_PUBLISH_VOICE -eq 'true') {
         throw "AZURE_RESOURCE_GROUP and AZURE_APP_SERVICE_NAME are required for voice-agent configuration."
     }
     az webapp config appsettings set --resource-group $ResourceGroup --name $env:AZURE_APP_SERVICE_NAME `
-        --settings "AZURE_VOICE_AGENT_NAME=$voiceName" "AZURE_VOICE_AGENT_VERSION=$voiceVersion" --output none
+        --settings "AZURE_VOICE_AGENT_NAME=$voiceName" "AZURE_VOICE_AGENT_VERSION=$voiceVersion" `
+        "AZURE_VOICE_PROJECT_ENDPOINT=$env:AZURE_VOICE_PROJECT_ENDPOINT" `
+        "AZURE_VOICE_AGENT_MODEL=$env:AZURE_VOICE_AGENT_MODEL" `
+        "AZURE_VOICE_AGENT_MODEL_TYPE=$env:AZURE_VOICE_AGENT_MODEL_TYPE" --output none
     if ($LASTEXITCODE -ne 0) { throw "Unable to configure voice agent on App Service." }
     azd env set AZURE_VOICE_AGENT_NAME $voiceName
     if ($LASTEXITCODE -ne 0) { throw "Unable to save local voice agent name." }
     azd env set AZURE_VOICE_AGENT_VERSION $voiceVersion
     if ($LASTEXITCODE -ne 0) { throw "Unable to save local voice agent version." }
     Write-Host "Foundry voice agent $voiceName version $voiceVersion is configured." -ForegroundColor Green
+}
+elseif ($env:FIBREOPS_PUBLISH_VOICE -ne 'false' -and -not $voiceProjectProvisioned) {
+    Write-Host "Skipping voice publication because PROVISION_VOICE_PROJECT=false. Set FIBREOPS_PUBLISH_VOICE=true only when the target project already has a compatible realtime model." -ForegroundColor DarkGray
 }
 elseif (-not $env:AZURE_VOICE_AGENT_NAME -or -not $env:AZURE_VOICE_AGENT_VERSION) {
     Write-Warning "Voice publishing is disabled and no immutable voice agent name/version is configured."

@@ -112,6 +112,19 @@ if ($foundry) {
     }
     $grants += @{ Role = "Cognitive Services OpenAI User"; Scope = $foundry; Desc = "call the underlying model deployment" }
 }
+if ($voiceLive -and $env:AZURE_VOICE_PROJECT_ENDPOINT -match "/projects/([^/?]+)") {
+    $voiceProjectName = $matches[1]
+    $grants += @{
+        Role = "Foundry User"
+        Scope = "$voiceLive/projects/$voiceProjectName"
+        Desc = "invoke the dedicated Foundry voice agent"
+    }
+    $grants += @{
+        Role = "Cognitive Services OpenAI User"
+        Scope = $voiceLive
+        Desc = "call the self-deployed realtime voice model"
+    }
+}
 
 foreach ($g in $grants) {
     Write-Host "Granting [$($g.Role)] -> $($g.Desc)" -ForegroundColor Cyan

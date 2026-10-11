@@ -1,0 +1,88 @@
+{
+  "agent": "fibreops-noc-voice",
+  "agentVersion": "1",
+  "model": "gpt-realtime-2.1",
+  "voice": "ar-AE-Rashid:DragonHDLatestNeural",
+  "voiceType": "azure-standard",
+  "preferredLocales": [
+    "en-GB",
+    "ar-AE"
+  ],
+  "humanListeningApproved": false,
+  "audioAcceptance": {
+    "expectedTurns": 60,
+    "completedTurns": 60,
+    "technicalTurns": 12,
+    "silentOrMissingTurns": 0,
+    "responseLanguages": {
+      "en": 39,
+      "ar": 9,
+      "pl": 12
+    }
+  },
+  "evaluation": {
+    "status": "Completed",
+    "total": 60,
+    "passed": 31,
+    "failed": 29,
+    "errored": 0,
+    "skipped": 0,
+    "acceptanceGatePassed": false,
+    "evaluators": {
+      "fluency": {
+        "threshold": 4,
+        "passed": 37,
+        "failed": 23
+      },
+      "coherence": {
+        "threshold": 4,
+        "passed": 60,
+        "failed": 0
+      },
+      "languageMatch": {
+        "threshold": 1,
+        "passed": 60,
+        "failed": 0
+      },
+      "semanticAccuracy": {
+        "threshold": 1,
+        "passed": 51,
+        "failed": 9
+      },
+      "naturalLanguage": {
+        "threshold": 1,
+        "passed": 60,
+        "failed": 0
+      },
+      "inputRecognition": {
+        "threshold": 1,
+        "passed": 60,
+        "failed": 0
+      }
+    },
+    "byResponseLanguage": {
+      "en": {
+        "rows": 39,
+        "fluencyPassed": 25,
+        "semanticAccuracyPassed": 35
+      },
+      "ar": {
+        "rows": 9,
+        "fluencyPassed": 8,
+        "semanticAccuracyPassed": 6
+      },
+      "pl": {
+        "rows": 12,
+        "fluencyPassed": 4,
+        "semanticAccuracyPassed": 10
+      }
+    },
+    "notes": [
+      "All evaluators completed without row errors.",
+      "Coherence, language selection, natural-language output, and input-recognition gates passed for every row.",
+      "Semantic failures were limited to technical cases where spoken identifiers or exact quantities were altered.",
+      "Most fluency failures scored 3 against a strict threshold of 4 for concise operational replies.",
+      "No native-speaker pronunciation approval has been recorded."
+    ]
+  }
+}

@@ -18,6 +18,8 @@ def test_dashboard_separates_actions_and_operations(chdir_state_tmp):
     assert 'class="operations-menu"' in response.text
     assert 'hx-confirm="Permanently clear demo incidents' in response.text
     assert '/static/dashboard.js?v=1' in response.text
+    assert "FOUNDRY ·" in response.text
+    assert "services.ai.azure.com" not in response.text
 
 
 def test_incident_cards_expose_selection_and_elapsed_time(chdir_state_tmp):

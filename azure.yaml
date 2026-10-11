@@ -34,8 +34,8 @@ services:
 # never reported healthy with an unusable agent backend.
 #   - Publish runs by default; disable with `azd env set FIBREOPS_SKIP_PUBLISH true`.
 #   - Hosted agent is OFF by default; enable with `azd env set FIBREOPS_DEPLOY_HOSTED true`.
-#   - Voice Agents Preview publisher uses an isolated, ignored environment;
-#     enable with `azd env set FIBREOPS_PUBLISH_VOICE true`.
+#   - Voice Agents Preview publisher uses an isolated, ignored environment and
+#     runs by default; disable with `azd env set FIBREOPS_PUBLISH_VOICE false`.
 hooks:
   postdeploy:
     shell: pwsh

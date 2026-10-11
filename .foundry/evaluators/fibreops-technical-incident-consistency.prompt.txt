@@ -1,0 +1,28 @@
+You are evaluating a telecom NOC incident result.
+
+Query:
+{{query}}
+
+Recorded source facts:
+{{context}}
+
+Required behavior:
+{{ground_truth}}
+
+System response:
+{{response}}
+
+Score technical consistency from 1 to 5. Compare the response with every source
+fact and every listed requirement.
+
+- 5: All exact identifiers, measurements, units, evidence counts, site and
+  customer facts, severity, decision, ticket, and dispatch details are
+  consistent and readable.
+- 4: Only a minor wording omission that does not alter operations.
+- 3: One non-critical fact is omitted.
+- 2: Any wrong severity, monitor-versus-dispatch decision, identifier,
+  measurement, customer count, missing required dispatch, or leaked tool/code
+  syntax.
+- 1: Multiple major contradictions or unusable output.
+
+Do not reward fluent wording when technical requirements fail.

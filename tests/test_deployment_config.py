@@ -68,6 +68,26 @@ def test_derived_foundry_account_name_is_used_for_custom_subdomain():
     assert "customSubDomainName: resolvedFoundryAccountName" in template
 
 
+def test_clean_deploy_defaults_to_resolvable_self_deployed_voice_model():
+    root = Path(__file__).resolve().parents[1]
+    template = (root / "infra" / "main.bicep").read_text(encoding="utf-8")
+    parameters = (root / "infra" / "main.parameters.json").read_text(
+        encoding="utf-8"
+    )
+    postdeploy = (root / "scripts" / "postdeploy.ps1").read_text(encoding="utf-8")
+
+    assert "param provisionVoiceProject bool = true" in template
+    assert "param azureVoiceAgentModelType string = 'self_deployed'" in template
+    assert "${PROVISION_VOICE_PROJECT=true}" in parameters
+    assert "${AZURE_VOICE_AGENT_MODEL_TYPE=self_deployed}" in parameters
+    assert "$voiceProjectProvisioned = $env:PROVISION_VOICE_PROJECT -ne 'false'" in postdeploy
+    assert "$env:FIBREOPS_PUBLISH_VOICE -eq 'true'" in postdeploy
+    assert (
+        "$env:FIBREOPS_PUBLISH_VOICE -ne 'false' -and $voiceProjectProvisioned"
+        in postdeploy
+    )
+
+
 def test_agent_checker_has_no_user_specific_path():
     checker = (Path(__file__).resolve().parents[1] / "check_agents.py").read_text(
         encoding="utf-8"
@@ -86,6 +106,8 @@ def test_postdeploy_has_resumable_named_phases():
         assert f'"{phase}"' in script
     assert "FIBREOPS_RESUME_DEPLOYMENT" in script
     assert "postdeploy-state.json" in script
+    assert "App Service has no published-agent registry" in script
+    assert "FIBREOPS_PUBLISHED_AGENTS" in script
 
 
 def test_runtime_identity_can_call_project_responses_api():

@@ -184,13 +184,147 @@ def build_rows(runs: list[dict[str, Any]]) -> list[dict[str, str]]:
     return rows
 
 
+def build_technical_rows(runs: list[dict[str, Any]]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for run in runs:
+        signal = run.get("signal") or {}
+        node = run.get("node_context") or {}
+        steps = run.get("steps") or []
+        incident_id = str(run.get("incident_id", "unknown"))
+        analysis = next(
+            (
+                step.get("output")
+                for step in steps
+                if step.get("agent") == "IncidentAnalysisAgent"
+            ),
+            None,
+        )
+        coordinator = next(
+            (
+                step
+                for step in steps
+                if step.get("agent") == "NetOpsCoordinatorAgent"
+            ),
+            None,
+        )
+        if not isinstance(analysis, dict) or not isinstance(coordinator, dict):
+            continue
+        dispatch = next(
+            (
+                step
+                for step in steps
+                if step.get("agent") == "FieldDispatchAgent"
+            ),
+            None,
+        )
+        dispatch_metadata = (
+            (dispatch.get("metadata") or {}).get("dispatch") or {}
+            if isinstance(dispatch, dict)
+            else {}
+        )
+        ticket = _stable_ticket(coordinator.get("ticket")) or {}
+        response = _without_runtime_fields(
+            {
+                "analysis": {
+                    key: analysis.get(key)
+                    for key in (
+                        "severity",
+                        "summary",
+                        "customer_impact",
+                        "probable_cause",
+                    )
+                },
+                "decision": coordinator.get("decision"),
+                "ticket": {
+                    key: ticket.get(key)
+                    for key in (
+                        "ticket_id",
+                        "incident_id",
+                        "node_id",
+                        "severity",
+                        "title",
+                        "status",
+                    )
+                },
+                "dispatch": (
+                    {
+                        "result": dispatch.get("result"),
+                        "engineer_id": dispatch_metadata.get("engineer_id"),
+                        "engineer_name": dispatch_metadata.get("engineer_name"),
+                        "eta_minutes": dispatch_metadata.get("eta_minutes"),
+                    }
+                    if isinstance(dispatch, dict)
+                    else None
+                ),
+            }
+        )
+        expected_action = (
+            "dispatch or urgently escalate"
+            if signal.get("severity") in {"critical", "high"}
+            else "monitor and investigate proportionately"
+        )
+        raw = signal.get("raw") or {}
+        requirements = [
+            f"Keep incident {incident_id} and node {signal.get('node_id')} exact.",
+            (
+                f"Preserve {signal.get('severity')} severity and the exact measurement "
+                f"{signal.get('measured_value')} {signal.get('unit')}."
+            ),
+            (
+                f"Use site {node.get('site')} and customer exposure "
+                f"{node.get('customers_served')} without approximation."
+            ),
+            f"The operational decision must {expected_action}.",
+            "Keep the ticket severity, node, and incident identifiers consistent.",
+            "Use readable operational text without code fences, tool-call syntax, or garbled text.",
+        ]
+        if raw.get("consecutive_polls_dark") is not None:
+            requirements.append(
+                f"Preserve {raw['consecutive_polls_dark']} consecutive dark polls."
+            )
+        if raw.get("last_good_dbm") is not None:
+            requirements.append(
+                f"Preserve the last good optical reading {raw['last_good_dbm']} dBm."
+            )
+        if raw.get("olt_port"):
+            requirements.append(f"Preserve OLT port {raw['olt_port']}.")
+        if signal.get("severity") in {"critical", "high"}:
+            requirements.append(
+                "Include a recorded field dispatch or clearly identify a missing dispatch as a defect."
+            )
+        rows.append(
+            {
+                "query": (
+                    f"Perform an end-to-end technical consistency review for recorded "
+                    f"incident {incident_id}, including analysis, decision, ticket, and dispatch."
+                ),
+                "response": json.dumps(response, ensure_ascii=False, sort_keys=True),
+                "context": json.dumps(
+                    _context(run), ensure_ascii=False, sort_keys=True
+                ),
+                "ground_truth": json.dumps(
+                    {"requirements": requirements},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            }
+        )
+    return rows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("input", type=Path, help="Recorded runs as JSON or JSONL")
     parser.add_argument("output", type=Path, help="Output Foundry JSONL dataset")
+    parser.add_argument(
+        "--technical-only",
+        action="store_true",
+        help="Generate one end-to-end technical consistency row per incident",
+    )
     args = parser.parse_args()
 
-    rows = build_rows(_load_runs(args.input))
+    runs = _load_runs(args.input)
+    rows = build_technical_rows(runs) if args.technical_only else build_rows(runs)
     if not rows:
         raise SystemExit("No incident evaluation rows were generated.")
 

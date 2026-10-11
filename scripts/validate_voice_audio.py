@@ -24,6 +24,8 @@ import websockets
 from azure.identity.aio import DefaultAzureCredential
 
 RATE = 24000
+SPEECH_SYNTHESIS_ATTEMPTS = 3
+RETRYABLE_HTTP_STATUSES = {408, 429, 500, 502, 503, 504}
 
 
 @dataclass(frozen=True)
@@ -84,6 +86,33 @@ CASES = (
     Case("arabic-mention-not-override", "en", "en",
          "My Arabic-speaking colleague is joining us, please briefly explain your role.",
          "Briefly describes helping network operators, without invented incident facts."),
+    Case("technical-critical-update", "en", "en",
+         "Give a concise NOC update using only these facts: incident INC-DEMO-CRITICAL is "
+         "a critical loss of light at Shoreditch CO on FN-LDN-001. Power is minus 40 dBm, "
+         "the last good reading was minus 18.4 dBm, there were 6 consecutive dark polls, "
+         "12,400 customers may be affected, the cause is not confirmed, and an engineer "
+         "was dispatched with an ETA of 15 minutes.",
+         "Preserves critical severity, INC-DEMO-CRITICAL, FN-LDN-001, Shoreditch CO, "
+         "-40 dBm, -18.4 dBm, 6 dark polls, exactly 12,400 customers MAY be affected, "
+         "cause NOT confirmed, and dispatched engineer ETA 15 minutes."),
+    Case("technical-critical-arabic", "en", "ar",
+         "Answer in Arabic. Report incident INC-DEMO-CRITICAL without adding facts: "
+         "critical loss of light on FN-LDN-001, minus 40 dBm, 6 dark polls, exactly "
+         "12,400 customers may be affected, cause unconfirmed, engineer ETA 15 minutes.",
+         "Arabic response preserving critical severity, identifiers, -40 dBm, 6 dark polls, "
+         "exactly 12,400 customers MAY be affected, unconfirmed cause, and ETA 15 minutes."),
+    Case("technical-medium-polish", "en", "pl",
+         "Answer in Polish. Report this incident without adding facts: medium high "
+         "attenuation at Bay Cabinet 5 on FN-CRD-005, 7.2 dB, 900 customers served, "
+         "cause unconfirmed, monitor and investigate, no field dispatch yet.",
+         "Polish response preserving medium severity, Bay Cabinet 5, FN-CRD-005, 7.2 dB, "
+         "900 customers, unconfirmed cause, monitoring and investigation, and NO dispatch."),
+    Case("technical-dispatch-decision", "en", "en",
+         "This is a hypothetical closed-book question; do not use any tools. A "
+         "loss-of-light signal is critical, reads minus 40 dBm, and has 6 consecutive "
+         "dark polls. Should the coordinator monitor it or dispatch? Answer briefly.",
+         "Must choose dispatch or urgent escalation, preserve critical severity, -40 dBm "
+         "and 6 dark polls, and must not choose monitoring only."),
 )
 
 
@@ -132,7 +161,30 @@ async def resolve_speech_access_token(
     return token
 
 
+class _RetryingSpeechClient:
+    def __init__(self, client: httpx.AsyncClient) -> None:
+        self._client = client
+
+    async def post(self, *args, **kwargs):
+        for attempt in range(1, SPEECH_SYNTHESIS_ATTEMPTS + 1):
+            try:
+                response = await self._client.post(*args, **kwargs)
+                if (
+                    response.status_code in RETRYABLE_HTTP_STATUSES
+                    and attempt < SPEECH_SYNTHESIS_ATTEMPTS
+                ):
+                    await asyncio.sleep(2 ** (attempt - 1))
+                    continue
+                return response
+            except httpx.TransportError:
+                if attempt == SPEECH_SYNTHESIS_ATTEMPTS:
+                    raise
+                await asyncio.sleep(2 ** (attempt - 1))
+        raise RuntimeError("Speech synthesis retries exhausted")
+
+
 async def synthesize(client: httpx.AsyncClient, endpoint: str, token: str, case: Case) -> bytes:
+    client = _RetryingSpeechClient(client)
     locale, voice = {
         "en": ("en-GB", "en-GB-RyanNeural"),
         "pl": ("pl-PL", "pl-PL-MarekNeural"),

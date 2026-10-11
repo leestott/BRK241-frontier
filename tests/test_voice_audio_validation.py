@@ -3,6 +3,7 @@ import json
 import struct
 import wave
 
+import httpx
 import pytest
 
 from scripts.validate_voice_audio import (
@@ -11,6 +12,7 @@ from scripts.validate_voice_audio import (
     judge,
     resolve_speech_access_token,
     speech_authorization_token,
+    synthesize,
     write_wav,
 )
 
@@ -57,6 +59,42 @@ async def test_speech_access_token_uses_sts_exchange_when_key_is_available(monke
         Client(), "https://speech.example/", "/subscriptions/sub/resource", "entra-token",
     )
     assert token == "sts-token"
+
+
+@pytest.mark.asyncio
+async def test_speech_synthesis_retries_transient_transport_failure(monkeypatch):
+    pcm = struct.pack("<hh", 1000, -1000)
+
+    class Response:
+        status_code = 200
+        content = pcm
+
+        def raise_for_status(self):
+            pass
+
+    class Client:
+        attempts = 0
+
+        async def post(self, *args, **kwargs):
+            self.attempts += 1
+            if self.attempts == 1:
+                raise httpx.ReadError(
+                    "transient",
+                    request=httpx.Request("POST", "https://speech.example"),
+                )
+            return Response()
+
+    async def no_delay(_seconds):
+        return None
+
+    monkeypatch.setattr("scripts.validate_voice_audio.asyncio.sleep", no_delay)
+    client = Client()
+    result = await synthesize(
+        client, "https://speech.example", "token", CASES[0]
+    )
+
+    assert result == pcm
+    assert client.attempts == 2
 
 
 @pytest.mark.asyncio

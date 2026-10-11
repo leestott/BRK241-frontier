@@ -315,17 +315,22 @@ Behaviour:
 
 | Env var                       | Purpose                                                  |
 |-------------------------------|----------------------------------------------------------|
-| `AZURE_AI_PROJECT_ENDPOINT`   | Foundry project endpoint for text and voice agents     |
+| `AZURE_AI_PROJECT_ENDPOINT`   | Foundry project endpoint for text and hosted agents    |
+| `AZURE_VOICE_PROJECT_ENDPOINT` | Optional dedicated Foundry project for the voice agent |
 | `AZURE_VOICE_AGENT_NAME`      | Published `kind: voice` agent; empty = offline mode     |
 | `AZURE_VOICE_AGENT_VERSION`   | Optional tested version; empty uses latest              |
 | `AZURE_VOICE_AGENT_VOICE`     | Voice configured at publish time (default `ar-AE-Rashid:DragonHDLatestNeural`) |
 | `AZURE_VOICE_AGENT_VOICE_TYPE` | Voice provider (`azure-standard` by default) |
 | `AZURE_VOICE_AGENT_PREFER_LOCALES` | Preferred multilingual locales (`en-GB,ar-AE`) |
-| `AZURE_VOICE_AGENT_MODEL`     | Managed voice model configured at publish time (`gpt-realtime-2.1`) |
+| `AZURE_VOICE_AGENT_MODEL`     | Voice model/deployment configured at publish time (`gpt-realtime-2.1`) |
+| `AZURE_VOICE_AGENT_MODEL_TYPE` | `managed` or `self_deployed`; explicit deployments make portal Setup resolvable |
 | `FIBREOPS_VOICE_UPDATES`      | `1` = agents speak automatically; default `0` (UI only)  |
 
-To publish during `azd up`, set `FIBREOPS_PUBLISH_VOICE=true` **only in the
-ignored AZD environment**. The postdeploy hook creates `.venv-voice/`, installs
+Voice publication runs by default during `azd up`; set
+`FIBREOPS_PUBLISH_VOICE=false` **only in the ignored AZD environment** to opt
+out. Setting `PROVISION_VOICE_PROJECT=false` also skips default publication;
+set `FIBREOPS_PUBLISH_VOICE=true` explicitly only when the target project
+already has a compatible realtime model. The postdeploy hook creates `.venv-voice/`, installs
 `requirements-voice.txt`, publishes the definition from
 `src/fibreops/voice_live/definition.json`, and records the agent name and
 version in local AZD settings and App Service configuration. The isolated
@@ -333,7 +338,9 @@ publisher is necessary because the current Agent Framework integration
 requires `azure-ai-projects<2.7` while Voice Agents Preview requires
 `azure-ai-projects>=2.7`. Authentication uses the web app managed identity;
 no API keys or bearer tokens are placed in the browser or tracked YAML.
-The project must support Voice Agents Preview and managed `gpt-realtime-2.1`.
+The dedicated voice project must support Voice Agents Preview and the explicit
+`gpt-realtime-2.1` deployment. Override its region or model settings in the
+ignored AZD environment if the defaults lack subscription capacity.
 The Dubai demo uses the UAE Arabic multilingual HD voice
 `ar-AE-Rashid:DragonHDLatestNeural` with `voice_type="azure-standard"` and
 preferred locales `en-GB,ar-AE`. The current Voice Live language support lists
@@ -381,9 +388,10 @@ node --test tests\test_voice_client.cjs
 For repeatable live acceptance testing, `scripts/validate_voice_audio.py` synthesizes
 English, Polish and Arabic **input audio**, streams PCM16 at microphone rate through the
 published VAD, and saves reply WAVs, input/output transcripts and a JSON report.
-Sixteen cases run in one conversation, repeated three times by default, including switches,
-override expiry, mentions that are not overrides, and technical translation with
-negation, uncertainty and quantities. An independent `gpt-5.4-mini` text judge
+Twenty cases run in one conversation, repeated three times by default, including
+switches, override expiry, mentions that are not overrides, and technical incident
+responses with exact optical measurements, severity, dispatch decisions, negation,
+uncertainty and quantities. An independent `gpt-5.4-mini` text judge
 checks language, meaning, natural wording and recognition. Every case must pass;
 service errors, missing audio and incomplete runs fail explicitly.
 
@@ -391,7 +399,7 @@ Run this against a separate candidate agent before changing the live version:
 
 ```powershell
 python -m scripts.validate_voice_audio `
-  --project-endpoint $env:AZURE_AI_PROJECT_ENDPOINT `
+  --project-endpoint $env:AZURE_VOICE_PROJECT_ENDPOINT `
   --agent <your-separate-candidate-agent> --version <candidate-version> `
   --speech-endpoint $env:AZURE_VOICE_LIVE_ENDPOINT `
   --speech-resource-id $env:AZURE_VOICE_LIVE_ACCOUNT_ID `
@@ -482,6 +490,15 @@ usage and requires Entra access to both the judge and project.
 SDK text scores do not certify a native accent: Polish and Arabic audio still
 require native-speaker listening approval.
 
+The latest sanitized real-audio aggregate is
+[`.foundry/results/fibreops-noc-voice-technical-v1.json`](.foundry/results/fibreops-noc-voice-technical-v1.json).
+All 60 turns completed with no silent output or evaluator errors. Coherence,
+language selection, natural-language output and input recognition passed for all
+rows; the strict combined gate passed 31 and failed 29. The failures are retained:
+23 concise operational replies scored 3/5 against the 4/5 fluency threshold, and
+9 technical replies altered a spoken identifier or exact quantity. Detailed
+transcripts, run IDs and portal URLs remain only in ignored local state.
+
 The shared [voice preview evaluation skill](.github/skills/foundry-voice-preview-evaluation/SKILL.md)
 captures this publication, acceptance and rollout procedure for repository agents.
 
@@ -527,6 +544,28 @@ python scripts\download_foundry_evaluation.py `
 Environment-specific result directories are ignored by Git because downloaded
 results include immutable run IDs and Foundry portal report URLs. Publish only a
 sanitized aggregate summary when evaluation evidence should be shared.
+
+Generate the separate end-to-end technical consistency suite with:
+
+```powershell
+python scripts\build_incident_evaluation_dataset.py `
+  state\recorded-incidents.json `
+  .foundry\datasets\fibreops-noc-technical-incidents-v1.jsonl `
+  --technical-only
+```
+
+Each technical row checks the complete incident chain: exact optical measurement
+and units, dark-poll and last-good evidence, node/site/customer facts, severity
+preservation, escalation decision, ticket consistency, dispatch outcome, and
+readable coordinator output. These checks complement language and audio
+evaluations; they must not be replaced by aggregate fluency scores.
+
+The reusable custom evaluator prompt is stored in
+`.foundry/evaluators/fibreops-technical-incident-consistency.prompt.txt`. Its
+4/5 pass gate checks the exact operational requirements that general coherence
+and groundedness metrics can miss. The tracked metadata contains only aggregate
+baseline counts; evaluation IDs, run IDs, report URLs, endpoints, and account
+identifiers remain in ignored local result directories.
 
 ## Foundry Routines (BRK241 slide 11)
 
@@ -730,16 +769,16 @@ The repository ships a complete `azd` (Azure Developer CLI) template. A single
 **Azure App Service for Linux Containers** (NOC console), **Azure
 Container Registry**, **Event Hub**, **Key Vault**, **Log Analytics**,
 **Application Insights**, a new **Foundry account/project and model deployment**,
-an optional legacy **Azure AI Services (Voice Live)** account, the
-three role **Prompt Agents**, and (optionally) the containerised **hosted
-agent**. The separate Foundry Voice Agent Preview uses the Foundry project,
-not the legacy Speech account or its API key.
+a dedicated **Azure AI Services voice project** with an explicit realtime
+model deployment, the three role **Prompt Agents**, the **Voice Agent Preview**
+definition, and (optionally) the containerised **hosted agent**.
 
 | Component | How it's deployed |
 |-----------|-------------------|
-| Infra (App Service, ACR, Event Hub, Key Vault, Log Analytics, App Insights, **Foundry project and model**, Voice Live AI Services account) | `infra/main.bicep` |
+| Infra (App Service, ACR, Event Hub, Key Vault, Log Analytics, App Insights, **Foundry text project/model**, dedicated **voice project/realtime model**) | `infra/main.bicep` |
 | NOC console container image | Built in ACR via `remoteBuild: true` (no local Docker) and deployed to App Service |
 | Three role **Prompt Agents** (`fibreops-incident-analysis`, `-netops-coordinator`, `-field-dispatch`) | `postdeploy` hook → `scripts/postdeploy.ps1` → `fibreops.demo publish` (the default `hosted` backend binds to these) |
+| Foundry **Voice Agent Preview** (`fibreops-noc-voice`) | `postdeploy` hook → isolated `.venv-voice` publisher; disable with `FIBREOPS_PUBLISH_VOICE=false` or by opting out of dedicated voice-project provisioning |
 | Containerised **hosted agent** (single `/responses` agent) | `postdeploy` hook when `FIBREOPS_DEPLOY_HOSTED=true` |
 
 AI Search defaults to Basic in the application region. If that region has
@@ -793,6 +832,8 @@ azd env set AZURE_SUBSCRIPTION_ID      "<subscription-id>"
 azd env set AZURE_LOCATION             "northcentralus"
 azd env set AZURE_SEARCH_LOCATION      "northcentralus"
 azd env set AZURE_VOICE_LIVE_LOCATION  "eastus2"
+azd env set PROVISION_VOICE_PROJECT    true
+azd env set AZURE_VOICE_AGENT_MODEL_TYPE "self_deployed"
 
 # All names and model settings are overridable. Empty Foundry names are
 # deterministically derived from the prefix.
@@ -851,9 +892,13 @@ azd up
 This provisions the resource group, Foundry project and model, builds the NOC
 image in ACR, deploys the App Service, then runs the `postdeploy` hook to grant
 managed-identity roles and publish the three Prompt Agents
-(and the hosted agent if `FIBREOPS_DEPLOY_HOSTED=true`). The NOC console URL is
-printed at the end. Hook toggles: `FIBREOPS_SKIP_PUBLISH=true` skips the Prompt
-Agent publish (e.g. when using `FIBREOPS_AGENT_BACKEND=foundry`/`local`).
+and the Voice Agent Preview definition (plus the hosted agent if
+`FIBREOPS_DEPLOY_HOSTED=true`). The NOC console URL is printed at the end.
+Hook toggles: `FIBREOPS_SKIP_PUBLISH=true` skips the Prompt Agent publish
+(e.g. when using `FIBREOPS_AGENT_BACKEND=foundry`/`local`);
+`FIBREOPS_PUBLISH_VOICE=false` skips voice publication.
+`PROVISION_VOICE_PROJECT=false` also skips default voice publication unless
+`FIBREOPS_PUBLISH_VOICE=true` explicitly opts into an already compatible target.
 The hook fails `azd up` if a required grant, publication, or enabled hosted
 agent deployment fails; inspect the error before calling the rollout complete.
 Rerun the idempotent Entra bootstrap after the first provision so it adds the

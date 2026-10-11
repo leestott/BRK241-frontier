@@ -45,6 +45,9 @@ class Settings(BaseSettings):
 
     # The separate Foundry voice agent owns speech, model and tool configuration.
     # An empty name keeps the offline browser TTS / local outbox demo available.
+    azure_voice_project_endpoint: Optional[str] = Field(
+        default=None, alias="AZURE_VOICE_PROJECT_ENDPOINT"
+    )
     azure_voice_agent_name: Optional[str] = Field(default=None, alias="AZURE_VOICE_AGENT_NAME")
     azure_voice_agent_version: Optional[str] = Field(default=None, alias="AZURE_VOICE_AGENT_VERSION")
     azure_voice_agent_voice: str = Field(

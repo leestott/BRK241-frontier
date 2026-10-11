@@ -82,6 +82,22 @@ def test_build_upstream_url_uses_project_and_voice_protocol(monkeypatch: pytest.
     assert "Bearer" not in url
 
 
+def test_build_upstream_url_prefers_dedicated_voice_project(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _reload_settings(
+        monkeypatch,
+        AZURE_AI_PROJECT_ENDPOINT="https://text.services.ai.azure.com/api/projects/text",
+        AZURE_VOICE_PROJECT_ENDPOINT="https://voice.services.ai.azure.com/api/projects/voice",
+        AZURE_VOICE_AGENT_NAME="noc",
+    )
+
+    assert build_upstream_url() == (
+        "wss://voice.services.ai.azure.com/api/projects/voice/agents/"
+        "noc/endpoint/protocols/voice?api-version=v1"
+    )
+
+
 def test_build_upstream_url_rejects_non_project_url(monkeypatch: pytest.MonkeyPatch) -> None:
     _reload_settings(
         monkeypatch,

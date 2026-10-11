@@ -28,6 +28,7 @@ from azure.identity import DefaultAzureCredential
 
 def build_definition(
     model: str = "gpt-realtime-2.1",
+    model_type: str = "managed",
     voice: str = "ar-AE-Rashid:DragonHDLatestNeural",
     voice_type: str = "azure-standard",
     prefer_locales: list[str] | None = None,
@@ -50,8 +51,14 @@ def build_definition(
         raise ValueError("AZURE_VOICE_AGENT_VOICE_TYPE must be openai or azure-standard.")
     source = Path(__file__).resolve().parent.parent / "src/fibreops/voice_live/definition.json"
     spec = json.loads(source.read_text(encoding="utf-8"))
+    model_types = {
+        "managed": VoiceModelType.MANAGED,
+        "self_deployed": VoiceModelType.SELF_DEPLOYED,
+    }
+    if model_type not in model_types:
+        raise ValueError("AZURE_VOICE_AGENT_MODEL_TYPE must be managed or self_deployed.")
     return VoiceAgentDefinition(
-        model_type=VoiceModelType.MANAGED,
+        model_type=model_types[model_type],
         model=model,
         instructions=spec["instructions"],
         audio=VoiceAgentAudioConfig(
@@ -85,10 +92,13 @@ def build_definition(
 
 
 def main() -> None:
-    endpoint = os.environ["AZURE_AI_PROJECT_ENDPOINT"]
+    endpoint = os.environ.get("AZURE_VOICE_PROJECT_ENDPOINT") or os.environ[
+        "AZURE_AI_PROJECT_ENDPOINT"
+    ]
     agent_name = os.environ["AZURE_VOICE_AGENT_NAME"]
     definition = build_definition(
         model=os.environ.get("AZURE_VOICE_AGENT_MODEL", "gpt-realtime-2.1"),
+        model_type=os.environ.get("AZURE_VOICE_AGENT_MODEL_TYPE", "managed"),
         voice=os.environ.get(
             "AZURE_VOICE_AGENT_VOICE", "ar-AE-Rashid:DragonHDLatestNeural"
         ),

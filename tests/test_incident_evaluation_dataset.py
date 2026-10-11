@@ -1,6 +1,6 @@
 import json
 
-from scripts.build_incident_evaluation_dataset import build_rows
+from scripts.build_incident_evaluation_dataset import build_rows, build_technical_rows
 
 
 def test_build_rows_preserves_recorded_outputs_and_context():
@@ -89,3 +89,63 @@ def test_build_rows_does_not_generate_rows_for_unknown_steps():
     }
 
     assert build_rows([run]) == []
+
+
+def test_build_technical_rows_requires_exact_signal_and_dispatch_facts():
+    run = {
+        "run_id": "run-private",
+        "incident_id": "INC-TECH-1",
+        "signal": {
+            "signal_id": "sig-private",
+            "timestamp": "2026-10-11T12:00:00Z",
+            "node_id": "FN-LDN-001",
+            "signal_type": "loss_of_light",
+            "severity": "critical",
+            "measured_value": -40,
+            "unit": "dBm",
+            "raw": {
+                "consecutive_polls_dark": 6,
+                "last_good_dbm": -18.4,
+                "olt_port": "1/1/3",
+            },
+        },
+        "node_context": {
+            "site": "Shoreditch CO",
+            "customers_served": 12400,
+        },
+        "steps": [
+            {
+                "agent": "IncidentAnalysisAgent",
+                "output": {"severity": "critical", "summary": "Loss of light"},
+            },
+            {
+                "agent": "NetOpsCoordinatorAgent",
+                "decision": "DISPATCH",
+                "ticket": {
+                    "incident_id": "INC-TECH-1",
+                    "node_id": "FN-LDN-001",
+                    "severity": "critical",
+                },
+            },
+            {
+                "agent": "FieldDispatchAgent",
+                "result": "DISPATCHED",
+                "metadata": {"dispatch": {"eta_minutes": 15}},
+            },
+        ],
+    }
+
+    rows = build_technical_rows([run])
+
+    assert len(rows) == 1
+    context = json.loads(rows[0]["context"])
+    response = json.loads(rows[0]["response"])
+    requirements = json.loads(rows[0]["ground_truth"])["requirements"]
+    assert "run_id" not in context
+    assert "signal_id" not in context["signal"]
+    assert response["decision"] == "DISPATCH"
+    assert response["dispatch"]["eta_minutes"] == 15
+    assert any("-40 dBm" in item for item in requirements)
+    assert any("6 consecutive dark polls" in item for item in requirements)
+    assert any("-18.4 dBm" in item for item in requirements)
+    assert any("OLT port 1/1/3" in item for item in requirements)

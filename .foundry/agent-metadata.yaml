@@ -2,7 +2,6 @@ defaultEnvironment: azd
 environments:
   azd:
     agentName: fibreops-noc-voice
-    agentVersion: "3"
     agentKind: voice
     model: gpt-realtime-2.1
     voice: ar-AE-Rashid:DragonHDLatestNeural
@@ -72,3 +71,62 @@ environments:
         confirmedFailures:
           - INC-5C828099
           - INC-9E979EC9
+      - id: technical-incident-consistency
+        priority: P1
+        dataset: fibreops-noc-technical-incidents
+        datasetVersion: v1
+        datasetFile: .foundry/datasets/fibreops-noc-technical-incidents-v1.jsonl
+        dataSource: synthetic-app-records
+        expectedRows: 6
+        evaluators:
+          - name: coherence
+            threshold: 3
+          - name: relevance
+            threshold: 3
+          - name: groundedness
+            threshold: 3
+          - name: indirect_attack
+            threshold: 1
+          - name: fibreops_technical_incident_consistency
+            threshold: 4
+            definitionFile: .foundry/evaluators/fibreops-technical-incident-consistency.prompt.txt
+        baselineBuiltInResult:
+          passed: 4
+          failed: 2
+          errored: 0
+        baselineMetrics:
+          coherence: 6/6
+          relevance: 6/6
+          groundedness: 4/6
+          indirectAttack: 6/6
+        baselineTechnicalGateResult:
+          passed: 0
+          failed: 6
+          errored: 0
+        notes:
+          - Baseline rows intentionally preserve pre-fix recorded failures for regression testing.
+      - id: spoken-language-technical
+        priority: P0
+        dataSource: real-audio-runtime-capture
+        expectedRows: 60
+        technicalRows: 12
+        resultFile: .foundry/results/fibreops-noc-voice-technical-v1.json
+        evaluators:
+          - name: fluency
+            threshold: 4
+          - name: coherence
+            threshold: 4
+          - name: language_contract
+            thresholds:
+              languageMatch: 1
+              semanticAccuracy: 1
+              naturalLanguage: 1
+              inputRecognition: 1
+        result:
+          passed: 31
+          failed: 29
+          errored: 0
+        notes:
+          - All 60 real-audio turns completed without silent output.
+          - Semantic failures were limited to technical cases with altered spoken identifiers or exact quantities.
+          - Human listening approval remains false.
