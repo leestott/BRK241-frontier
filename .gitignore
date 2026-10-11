@@ -23,3 +23,8 @@ state/*
 azd-*.log
 .venv-voice/
 .venv-evaluation/
+
+# Detailed Foundry evaluation downloads contain environment-specific report
+# URLs and immutable run IDs. Keep only sanitized aggregate summaries at the
+# root of .foundry/results/.
+.foundry/results/*/

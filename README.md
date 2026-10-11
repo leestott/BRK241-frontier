@@ -485,6 +485,49 @@ require native-speaker listening approval.
 The shared [voice preview evaluation skill](.github/skills/foundry-voice-preview-evaluation/SKILL.md)
 captures this publication, acceptance and rollout procedure for repository agents.
 
+#### Evaluating recorded incidents
+
+Recorded application runs can be converted into a Foundry query/response dataset
+without re-invoking the agents or replacing their original outputs:
+
+```powershell
+python scripts\build_incident_evaluation_dataset.py `
+  state\recorded-incidents.json `
+  .foundry\datasets\fibreops-noc-recorded-incidents-v1.jsonl
+```
+
+The generated rows evaluate each incident analysis, coordinator decision, ticket,
+and dispatch result against the signal and node facts captured in that run. Use
+Coherence, Fluency, Relevance, Groundedness, and Indirect Attack with the project
+judge deployment. Quality and groundedness thresholds use the Foundry portal's
+1-5 scale; the Indirect Attack threshold is 1.
+
+The current recorded-incident run evaluated 13 outputs from six synthetic demo
+incidents recorded by the application. Nine rows passed every evaluator. Four
+initially failed Groundedness;
+a full-context verification confirmed two genuine failures, both critical
+loss-of-light analyses that incorrectly downgraded severity to medium and omitted
+the recorded signal, customer impact, and recommended actions. The other two
+initial failures were caused by a reduced evaluation context and passed when
+rerun with the complete recorded context. Evaluation IDs, run IDs, thresholds,
+and detailed result downloads are environment-specific and remain local. The
+tracked `.foundry/agent-metadata.yaml` contains only reusable evaluation
+configuration and sanitized aggregate findings.
+
+Download complete row-level results for failure analysis with:
+
+```powershell
+python scripts\download_foundry_evaluation.py `
+  --project-endpoint $env:AZURE_AI_PROJECT_ENDPOINT `
+  --evaluation-id <evaluation-id> `
+  --run-id <evaluation-run-id> `
+  --output .foundry\results\<environment>\<evaluation-id>\<run-id>.json
+```
+
+Environment-specific result directories are ignored by Git because downloaded
+results include immutable run IDs and Foundry portal report URLs. Publish only a
+sanitized aggregate summary when evaluation evidence should be shared.
+
 ## Foundry Routines (BRK241 slide 11)
 
 The NetOps coordinator role has two interchangeable implementations:
