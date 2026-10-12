@@ -45,7 +45,7 @@ pydantic>=2.13.5
 pydantic-settings>=2.14.2
 python-dotenv>=1.2.2
 typer>=0.26.8
-tenacity>=9.1.4
+tenacity>=9.2.1
 jinja2>=3.1.6
 
 # --- Dev / test ---
